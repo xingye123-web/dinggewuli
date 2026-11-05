@@ -1,0 +1,23 @@
+# 服务器入口。网页由 Next.js 提供，笔记本通过 /worker-api 领任务和上传结果
+dinggell.cn, www.dinggell.cn {
+	encode zstd gzip
+
+	# 只把领任务相关的接口暴露给笔记本，其余后端接口不经这条路
+	handle_path /worker-api/* {
+		@worker path /v1/worker/*
+		handle @worker {
+			reverse_proxy 127.0.0.1:8000
+		}
+		respond 404
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+	}
+}

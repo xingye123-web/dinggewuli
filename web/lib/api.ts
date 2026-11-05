@@ -16,8 +16,18 @@ export const fetchTimeline = (id: string) => getJson<Timeline>(`${jobUrl(id)}/ti
 
 export const imageUrl = (id: string) => `${jobUrl(id)}/image`;
 
-export const submitProblem = (text: string, imageBase64: string) =>
-  post("/api/problems", { text, image_base64: imageBase64 });
+export const submitProblem = (text: string, imageBase64: string, invite: string) =>
+  post("/api/problems", { text, image_base64: imageBase64, invite });
+
+/** 笔记本最近来领过任务，才能生成新题。 */
+export async function fetchWorkerOnline(): Promise<boolean> {
+  try {
+    const health = await getJson<{ worker_online?: boolean }>("/backend/healthz");
+    return !!health.worker_online;
+  } catch {
+    return false;
+  }
+}
 
 export const confirmProblem = (id: string, text: string, figure: string) =>
   post(`/api/problems/${id}/confirm`, { text, figure });

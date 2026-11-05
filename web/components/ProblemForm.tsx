@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type ClipboardEvent, type FormEvent, useEffect, useRef, useState } from "react";
-import { submitProblem } from "@/lib/api";
+import { fetchWorkerOnline, submitProblem } from "@/lib/api";
 import { imageToBase64 } from "@/lib/image";
 
 const MAX_TEXT = 3000;
@@ -10,11 +10,17 @@ const MAX_TEXT = 3000;
 export default function ProblemForm({ initialText = "" }: { initialText?: string }) {
   const router = useRouter();
   const [text, setText] = useState(initialText);
+  const [invite, setInvite] = useState("");
+  const [workerOnline, setWorkerOnline] = useState<boolean | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    void fetchWorkerOnline().then(setWorkerOnline);
+  }, []);
 
   // 离开页面时释放预览图占用的内存
   useEffect(() => {
@@ -53,7 +59,7 @@ export default function ProblemForm({ initialText = "" }: { initialText?: string
     setError(null);
     try {
       const imageBase64 = file ? await imageToBase64(file) : "";
-      const job = await submitProblem(text.trim(), imageBase64);
+      const job = await submitProblem(text.trim(), imageBase64, invite.trim());
       router.push(`/jobs/${job.id}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "提交失败");
@@ -91,6 +97,12 @@ export default function ProblemForm({ initialText = "" }: { initialText?: string
         </div>
       )}
 
+      <label htmlFor="invite">邀请码</label>
+      <input id="invite" value={invite} onChange={(event) => setInvite(event.target.value)} autoComplete="off" />
+
+      {workerOnline === false && (
+        <p className="note">生成服务暂时离线，可以先提交，上线后会自动开始。</p>
+      )}
       {error && (
         <p className="error" role="alert">
           {error}

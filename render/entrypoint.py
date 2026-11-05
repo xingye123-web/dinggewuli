@@ -26,7 +26,7 @@ FPS = 30
 PREPARE_TIMEOUT = 120
 RENDER_TIMEOUT = 600
 ENCODE_ARGS = [
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p",
     "-g", "15", "-keyint_min", "15", "-sc_threshold", "0", "-movflags", "+faststart",
 ]
 

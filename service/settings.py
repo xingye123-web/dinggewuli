@@ -20,7 +20,6 @@ def _secret(name):
         return ""
 
 
-BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://redis:6379/0")
 ARTIFACTS_DIR = Path(os.environ.get("ARTIFACTS_DIR", "/data/artifacts"))
 # 为空表示不校验，只允许本地开发这样用
 API_TOKEN = os.environ.get("RENDER_API_TOKEN", "")
@@ -51,3 +50,12 @@ MAX_AUTHOR_ATTEMPTS = int(os.environ.get("MAX_AUTHOR_ATTEMPTS", "4"))
 BREEZE_URL = os.environ.get("BREEZE_URL", "https://api.breeze.blue")
 BREEZE_VOICE = os.environ.get("BREEZE_VOICE", "voc_xb3zjqcmwp44")  # 晨曦讲解员
 BREEZE_SPEED = float(os.environ.get("BREEZE_SPEED", "0.95"))
+
+# 服务器和笔记本的分工：服务器只收题、存结果、放视频；笔记本主动来领任务，模型和配音都在笔记本上调用
+WORKER_TOKEN = os.environ.get("WORKER_TOKEN", "")  # 笔记本领任务、传结果用的令牌，服务器和笔记本要一致
+INVITE_CODES = [c for c in os.environ.get("INVITE_CODES", "").split(",") if c]  # 为空表示不要邀请码
+MAX_JOBS_PER_DAY = int(os.environ.get("MAX_JOBS_PER_DAY", "30"))
+LEASE_SECONDS = int(os.environ.get("LEASE_SECONDS", "120"))  # 笔记本这么久没报平安，任务就退回队列
+WORKER_ONLINE_SECONDS = int(os.environ.get("WORKER_ONLINE_SECONDS", "45"))
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
+HUB_URL = os.environ.get("HUB_URL", "")  # 只在笔记本上设置，指向服务器

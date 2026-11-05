@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { fetchSolution, fetchStatus, fetchTimeline, videoUrl } from "@/lib/api";
+import { fetchSolution, fetchStatus, fetchTimeline, fetchWorkerOnline, videoUrl } from "@/lib/api";
 import type { JobStatus, Solution, Timeline } from "@/lib/types";
 import ConfirmForm from "./ConfirmForm";
 import SolutionPanel from "./SolutionPanel";
@@ -54,6 +54,7 @@ export default function JobView({ id }: { id: string }) {
   const [solution, setSolution] = useState<Solution | null>(null);
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [lostConnection, setLostConnection] = useState(false);
+  const [workerOnline, setWorkerOnline] = useState(true);
 
   useEffect(() => {
     let stopped = false;
@@ -69,6 +70,7 @@ export default function JobView({ id }: { id: string }) {
         setLostConnection(false);
         setStatus(next);
         finished = next.status === "done" || next.status === "failed";
+        if (next.status === "queued") setWorkerOnline(await fetchWorkerOnline());
       } catch {
         failures += 1;
         if (failures >= MAX_POLL_FAILURES) setLostConnection(true);
@@ -109,6 +111,9 @@ export default function JobView({ id }: { id: string }) {
         <p className={failed ? "error" : "status"} role="status">
           {status ? stageText(status) : "正在读取任务…"}
         </p>
+      )}
+      {status?.status === "queued" && !workerOnline && (
+        <p className="note">生成服务暂时离线，它上线后会自动开始这道题。</p>
       )}
       {lostConnection && (
         <p className="error" role="alert">

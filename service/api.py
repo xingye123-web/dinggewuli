@@ -1,18 +1,22 @@
-"""渲染 API：只负责收任务和查状态，真正的工作在队列后面的 Worker 里。"""
+"""服务器上的接口：网页提交题目、查询状态、取结果；笔记本领任务、报进度、传结果。
+
+服务器不调用模型，也不运行生成的代码，这些都在笔记本上完成。
+"""
 
 import base64
 import json
+import os
 import secrets
+import tempfile
+import time
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from render.scene_check import MAX_BYTES, check_code
 
 from . import settings, store
-from .tasks import problem_job, render_job
 
 # 零件库或流程升级后，同样的输入要重新生成
 PIPELINE_VERSION = "0.4.0"
@@ -23,27 +27,31 @@ _IMAGE_TYPES = (
     (b"\xff\xd8\xff", "image/jpeg"),
     (b"RIFF", "image/webp"),
 )
+_WORKER_FILE = "_worker.json"
+# 笔记本能上传的文件，网页只会读其中几个
+_UPLOADS = {"solution.json", "timeline.json", "video.mp4", "transcript.json", "narration.json", "scene.py"}
+# 笔记本推送状态时不能改的字段
+_SERVER_FIELDS = {"id", "created_at", "lease_until"}
 
 app = FastAPI(title="定格物理")
-if settings.ALLOWED_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.ALLOWED_ORIGINS,
-        allow_methods=["GET", "POST"],
-        allow_headers=["Authorization", "Content-Type", "Range"],
-        expose_headers=["Content-Range", "Accept-Ranges"],
-    )
 
 
 def require_token(authorization: str = Header(default="")):
-    """提交任务要有令牌，否则任何人都能消耗模型额度、让服务器运行代码。"""
+    """提交任务要有令牌，否则任何人都能消耗模型额度。网页的服务端持有它，浏览器拿不到。"""
     if settings.API_TOKEN and not secrets.compare_digest(authorization, f"Bearer {settings.API_TOKEN}"):
+        raise HTTPException(status_code=401, detail="令牌无效")
+
+
+def require_worker(authorization: str = Header(default="")):
+    """只有笔记本能领任务和上传结果。没配置令牌时一律拒绝。"""
+    if not settings.WORKER_TOKEN or not secrets.compare_digest(authorization, f"Bearer {settings.WORKER_TOKEN}"):
         raise HTTPException(status_code=401, detail="令牌无效")
 
 
 class ProblemRequest(BaseModel):
     text: str = Field(default="", max_length=MAX_TEXT_CHARS)
     image_base64: str = Field(default="", max_length=MAX_IMAGE_BYTES * 2)
+    invite: str = Field(default="", max_length=100)
 
 
 class ConfirmRequest(BaseModel):
@@ -56,7 +64,7 @@ class RenderRequest(BaseModel):
 
 
 def _public(status):
-    return {key: value for key, value in status.items() if key != "created_at"}
+    return {key: value for key, value in status.items() if key not in ("created_at", "lease_until")}
 
 
 def _job_status(job_id):
@@ -79,18 +87,29 @@ def _image_data_url(encoded):
     raise HTTPException(status_code=422, detail="只支持 PNG、JPEG 和 WebP 图片")
 
 
-def _enqueue(job_id, task, response):
+def _worker_seen():
     try:
-        task.delay(job_id)
-    except Exception:
-        store.update_status(job_id, status="failed", stage="queue", errors=["任务队列不可用"])
-        raise HTTPException(status_code=503, detail="任务队列不可用") from None
-    return _public(store.read_status(job_id))
+        return json.loads((settings.ARTIFACTS_DIR / _WORKER_FILE).read_text(encoding="utf-8")).get("last_seen", 0)
+    except (OSError, ValueError):
+        return 0
+
+
+def _mark_worker_seen():
+    settings.ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    (settings.ARTIFACTS_DIR / _WORKER_FILE).write_text(json.dumps({"last_seen": time.time()}), encoding="utf-8")
+
+
+def _check_quota(invite):
+    if settings.INVITE_CODES and not any(secrets.compare_digest(invite, code) for code in settings.INVITE_CODES):
+        raise HTTPException(status_code=403, detail="邀请码不对")
+    if store.jobs_created_since(24 * 3600) >= settings.MAX_JOBS_PER_DAY:
+        raise HTTPException(status_code=429, detail="今天的生成次数已经用完，请明天再来")
 
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True}
+    """worker_online 表示笔记本最近来领过任务，网页据此提示现在能不能生成新题。"""
+    return {"ok": True, "worker_online": time.time() - _worker_seen() < settings.WORKER_ONLINE_SECONDS}
 
 
 @app.post("/v1/problems", status_code=202, dependencies=[Depends(require_token)])
@@ -102,19 +121,22 @@ def submit_problem(request: ProblemRequest, response: Response):
     image = _image_data_url(request.image_base64) if request.image_base64 else ""
 
     job_id = store.job_id_for(PIPELINE_VERSION, settings.SOLVE_MODEL, settings.AUTHOR_MODEL, text, request.image_base64)
-    problem = json.dumps({"text": text, "image": image}, ensure_ascii=False)
-    if not store.create(job_id, {"problem.json": problem}):
-        existing = store.read_status(job_id)
-        if existing.get("status") != "failed":
-            response.status_code = 200
-            return _public(existing)
+    existing = _job_status(job_id)
+    if existing and existing.get("status") != "failed":
+        # 做过的题直接给结果，不占用次数
+        response.status_code = 200
+        return _public(existing)
+    _check_quota(request.invite)
+    if existing:
         # 失败的题再次提交时重新生成，否则会一直拿到上次的失败结果
         store.reset(job_id)
-    return _enqueue(job_id, problem_job, response)
+    else:
+        store.create(job_id, {"problem.json": json.dumps({"text": text, "image": image}, ensure_ascii=False)})
+    return _public(store.read_status(job_id))
 
 
 @app.post("/v1/problems/{job_id}/confirm", status_code=202, dependencies=[Depends(require_token)])
-def confirm_problem(job_id: str, request: ConfirmRequest, response: Response):
+def confirm_problem(job_id: str, request: ConfirmRequest):
     """用户核对过读图结果后，按确认的内容继续解题。"""
     found = _job_status(job_id)
     if found is None:
@@ -126,7 +148,7 @@ def confirm_problem(job_id: str, request: ConfirmRequest, response: Response):
     problem.update(text=request.text.strip(), figure=request.figure.strip(), confirmed=True)
     path.write_text(json.dumps(problem, ensure_ascii=False), encoding="utf-8")
     store.reset(job_id)
-    return _enqueue(job_id, problem_job, response)
+    return _public(store.read_status(job_id))
 
 
 @app.post("/v1/renders", status_code=202, dependencies=[Depends(require_token)])
@@ -140,8 +162,7 @@ def submit_code(request: RenderRequest, response: Response):
     job_id = store.job_id_for(PIPELINE_VERSION, request.code)
     if not store.create(job_id, {"scene.py": request.code}):
         response.status_code = 200
-        return _public(store.read_status(job_id))
-    return _enqueue(job_id, render_job, response)
+    return _public(store.read_status(job_id))
 
 
 @app.get("/v1/renders/{job_id}")
@@ -185,3 +206,68 @@ def problem_image(job_id: str):
 @app.get("/v1/renders/{job_id}/video.mp4")
 def video(job_id: str):
     return _artifact(job_id, "video.mp4", "video/mp4", "video_ready")
+
+
+@app.post("/v1/worker/heartbeat", dependencies=[Depends(require_worker)])
+async def worker_heartbeat(request: Request):
+    _mark_worker_seen()
+    body = await request.json()
+    job_id = body.get("job_id") if isinstance(body, dict) else None
+    if job_id and _job_status(job_id):
+        store.extend_lease(job_id)
+    return {"ok": True}
+
+
+@app.post("/v1/worker/claim", dependencies=[Depends(require_worker)])
+def worker_claim():
+    """把最早排队的任务交给笔记本，连同题目或代码一起。"""
+    _mark_worker_seen()
+    status = store.claim_next()
+    if status is None:
+        return None
+    directory = store.job_dir(status["id"])
+    problem = directory / "problem.json"
+    code = directory / "scene.py"
+    return {
+        "id": status["id"],
+        "status": status,
+        "problem": json.loads(problem.read_text(encoding="utf-8")) if problem.exists() else None,
+        "code": code.read_text(encoding="utf-8") if code.exists() and not problem.exists() else None,
+    }
+
+
+@app.post("/v1/worker/jobs/{job_id}/status", dependencies=[Depends(require_worker)])
+async def worker_status(job_id: str, request: Request):
+    found = _job_status(job_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="状态要是一个对象")
+    found.update({key: value for key, value in body.items() if key not in _SERVER_FIELDS})
+    found["lease_until"] = time.time() + settings.LEASE_SECONDS
+    store.write_status(job_id, found)
+    _mark_worker_seen()
+    return {"ok": True}
+
+
+@app.put("/v1/worker/jobs/{job_id}/files/{name}", dependencies=[Depends(require_worker)])
+async def worker_upload(job_id: str, name: str, request: Request):
+    if name not in _UPLOADS:
+        raise HTTPException(status_code=422, detail="不接受这个文件")
+    if _job_status(job_id) is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    directory = store.job_dir(job_id)
+    descriptor, temporary = tempfile.mkstemp(dir=directory, suffix=".upload")
+    size = 0
+    with os.fdopen(descriptor, "wb") as handle:
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > settings.MAX_UPLOAD_BYTES:
+                break
+            handle.write(chunk)
+    if size > settings.MAX_UPLOAD_BYTES:
+        os.unlink(temporary)
+        raise HTTPException(status_code=413, detail="文件太大")
+    os.replace(temporary, directory / name)
+    return {"ok": True, "bytes": size}

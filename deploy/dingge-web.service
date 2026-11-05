@@ -1,0 +1,19 @@
+[Unit]
+Description=定格物理 网页
+After=network.target dingge-api.service
+
+[Service]
+User=dingge
+WorkingDirectory=/opt/dingge/current/web
+EnvironmentFile=/etc/dingge/web.env
+Environment=NODE_ENV=production PORT=3000 HOSTNAME=127.0.0.1
+ExecStart=/opt/node/bin/node server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

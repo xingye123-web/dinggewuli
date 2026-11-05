@@ -1,0 +1,19 @@
+[Unit]
+Description=定格物理 后端接口
+After=network.target
+
+[Service]
+User=dingge
+WorkingDirectory=/opt/dingge/current
+EnvironmentFile=/etc/dingge/api.env
+ExecStart=/opt/dingge/venv/bin/uvicorn service.api:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dingge
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
