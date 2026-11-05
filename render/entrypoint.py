@@ -141,14 +141,41 @@ def expand_frames(unique_video, repeats, output):
         raise RuntimeError(f"还原时间轴失败，缺少 {missing} 个画面")
 
 
-def add_narration(silent_video, audio_items, starts, seconds, work, output):
-    """把每句配音放到它的开始时间，合成一条音轨。不加音乐和音效。"""
+def _cut_segments(encoded, segments, work):
+    """把整段配音切成每句一个文件。在一个滤镜里分流再截取会让 FFmpeg 卡住，所以分开切。"""
+    whole = work / "speech.mp3"
+    whole.write_bytes(base64.b64decode(encoded))
+    paths = []
+    for index, (begin, end) in enumerate(segments):
+        path = work / f"speech{index}.wav"
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", str(whole), "-ss", f"{begin:.3f}", "-to", f"{end:.3f}",
+             "-ar", "44100", "-ac", "1", str(path)],
+            check=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+        )
+        paths.append(path)
+    return paths
+
+
+def add_narration(silent_video, audio_items, starts, seconds, work, output, segments=None):
+    """把每句配音放到它的开始时间，合成一条音轨。不加音乐和音效。
+
+    segments 不为空时，audio_items 只有一段整段配音，每句按 segments 里的起止秒数从中截取。
+    """
+    if segments:
+        paths = _cut_segments(audio_items[0], segments, work)
+    else:
+        paths = []
+        for index, encoded in enumerate(audio_items):
+            path = work / f"speech{index}.mp3"
+            path.write_bytes(base64.b64decode(encoded))
+            paths.append(path)
     inputs = []
     filters = []
     labels = []
-    for index, (encoded, start) in enumerate(zip(audio_items, starts)):
-        path = work / f"speech{index}.mp3"
-        path.write_bytes(base64.b64decode(encoded))
+    for index, (path, start) in enumerate(zip(paths, starts)):
         inputs += ["-i", str(path)]
         delay = int(round(start * 1000))
         filters.append(f"[{index + 1}:a]aresample=44100,adelay={delay}:all=1[a{index}]")
@@ -162,6 +189,7 @@ def add_narration(silent_video, audio_items, starts, seconds, work, output):
         check=True,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
+        timeout=180,
     )
 
 
@@ -210,7 +238,7 @@ def handle(request, work):
     expand_frames(unique_video, repeats, silent)
     video = work / "video.mp4"
     if request.get("audio"):
-        add_narration(silent, request["audio"], prepared["starts"], prepared["seconds"], work, video)
+        add_narration(silent, request["audio"], prepared["starts"], prepared["seconds"], work, video, request.get("segments"))
     else:
         silent.replace(video)
 

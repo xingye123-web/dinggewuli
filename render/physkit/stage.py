@@ -1,14 +1,14 @@
 """舞台：把零件组合成一个场景，加上板书和字幕，并在渲染前检查布局。"""
 
+import re
+
 from manim import MarkupText, Rectangle, Text, VGroup
 
-from .parts import FONT, INK, ROPE, Block, Part, Plot, Rope, _point
+from .parts import CAPTION_TOP, FONT, INK, ROPE, STAGE_RIGHT, Block, Part, Plot, Rope, _point
 from .timeline import SceneError
 
 FRAME_WIDTH = 8 * 16 / 9
 FRAME_HEIGHT = 8.0
-STAGE_RIGHT = 0.75  # 实物不能超过这条线，右边是板书和坐标图
-CAPTION_TOP = -3.3  # 实物不能低于这条线，下面是字幕
 BOARD_LEFT = 0.95
 BOARD_TOP = 3.65
 BOARD_WIDTH = 5.95
@@ -32,7 +32,7 @@ class _Board(Part):
             shown = self.timeline.board_lines[max(count - BOARD_MAX_LINES, 0) : count]
             for row, line in enumerate(shown):
                 is_newest = row == len(shown) - 1
-                text = MarkupText(line["text"], font=FONT, font_size=25, color=ROPE if is_newest else INK)
+                text = MarkupText(_markup(line["text"]), font=FONT, font_size=25, color=ROPE if is_newest else INK)
                 if text.width > BOARD_WIDTH:
                     text.scale(BOARD_WIDTH / text.width)
                 text.move_to(_point(BOARD_LEFT, BOARD_TOP - BOARD_LINE_HEIGHT * row), aligned_edge=_point(-1, 0))
@@ -225,11 +225,39 @@ class Stage:
                 for owner, text in texts:
                     if owner == number:
                         continue
-                    if (
-                        text.get_left()[0] < max(x0, x1)
-                        and min(x0, x1) < text.get_right()[0]
-                        and text.get_bottom()[1] < max(y0, y1)
-                        and min(y0, y1) < text.get_top()[1]
-                    ):
+                    box = (text.get_left()[0], text.get_bottom()[1], text.get_right()[0], text.get_top()[1])
+                    if _segment_hits_box(x0, y0, x1, y1, box):
                         found.append(f"第 {index} 帧：文字「{text.text}」压在 {type(part).__name__} #{number} 的边线上")
         return found
+
+
+def _segment_hits_box(x0, y0, x1, y1, box):
+    """线段和文字框是否相交（严格在内部，只擦到边不算）。斜面这样的斜线不能用包围盒判断。"""
+    left, bottom, right, top = box
+    t0, t1 = 0.0, 1.0
+    dx, dy = x1 - x0, y1 - y0
+    for p, q in ((-dx, x0 - left), (dx, right - x0), (-dy, y0 - bottom), (dy, top - y0)):
+        if abs(p) < 1e-12:
+            if q <= 0:
+                return False
+            continue
+        r = q / p
+        if p < 0:
+            t0 = max(t0, r)
+        else:
+            t1 = min(t1, r)
+        if t0 >= t1:
+            return False
+    return True
+
+
+_TAG = re.compile(r"(</?(?:sub|sup)>)")
+
+
+def _markup(text):
+    """板书只认 <sub> 和 <sup>，其余的 <、>、& 都当普通字符，比如 F1 < F2。"""
+    pieces = _TAG.split(text)
+    return "".join(
+        piece if _TAG.fullmatch(piece) else piece.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        for piece in pieces
+    )

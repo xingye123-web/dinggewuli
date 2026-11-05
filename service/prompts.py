@@ -2,10 +2,9 @@
 
 import json
 
-from . import settings
+from . import examples, settings
 
 _RENDER = settings.ROOT / "render"
-_EXAMPLES = ("pulley_n3.py", "buoyancy.py", "circuit.py", "motion.py")
 
 TRANSCRIBE = """你要把一张中国初中物理题的照片转成文字。只读题，不要解题。
 
@@ -20,6 +19,7 @@ TRANSCRIBE = """你要把一张中国初中物理题的照片转成文字。只�
 SOLVE = """你是中国初中物理老师，要独立解出这道题。
 
 只能用初中课标内的知识：没有加速度、牛顿第二定律、动能定理、冲量这些内容。代入计算前先把单位统一成国际单位。
+绝对值大于 10000 或小于 0.001 的数，在 explain 和 formula 里写成科学计数法，比如 1.5×10⁴ Pa、8×10⁻⁴ m³；answers 的 value 仍然写普通数字。
 
 输出 JSON：
 {
@@ -48,7 +48,9 @@ AUTHOR_TASK = """下面是题目和已经核对过的解答。请写出这道题
 - 旁白要按解答的步骤讲，并在合适的地方讲出易错点。整段旁白控制在 150 到 350 字。
 - 题目里的物理过程要真正动起来，能动的装置都要动。
 - 只输出一个 python 代码块，不要解释。
-- 如果现有零件确实画不出这道题，只输出一行：UNSUPPORTED: 原因。"""
+- 手册里没有这道题需要的专门零件时（比如杠杆、斜面、透镜），先用 Rod、Block、Readout 这些基础零件拼出来，
+  再在代码最前面加注释，每缺一种写一行：`# 缺少零件: 零件名；用途；现在用什么代替`。这些需求会转给零件库的维护者。
+- 只有基础零件也拼不出来时，才只输出一行：UNSUPPORTED: 原因。"""
 
 REPAIR = """上一版代码没有通过检查，问题如下：
 
@@ -57,10 +59,11 @@ REPAIR = """上一版代码没有通过检查，问题如下：
 请修改后输出完整的代码，仍然只输出一个 python 代码块。"""
 
 
-def author_system():
+def author_system(problem_text="", topic=""):
+    """手册放在最前面，每次都一样，DeepSeek 能缓存；后面是按题型挑出的示例。"""
     catalog = (_RENDER / "CATALOG.md").read_text(encoding="utf-8")
-    parts = [catalog, "\n# 示例\n"]
-    for name in _EXAMPLES:
+    parts = [catalog, "\n# 示例（和这道题题型最接近的）\n"]
+    for name in examples.pick(f"{topic}\n{problem_text}"):
         code = (_RENDER / "examples" / name).read_text(encoding="utf-8")
         parts.append(f"## {name}\n\n```python\n{code}\n```\n")
     return "\n".join(parts)

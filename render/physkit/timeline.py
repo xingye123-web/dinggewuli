@@ -9,6 +9,8 @@ import re
 
 from speech_text import split_clauses
 
+from .numbers import board_number, spoken_number, to_display
+
 FPS = 30
 MAX_SECONDS = 300
 MAX_SPEECH_CHARS = 120
@@ -285,21 +287,24 @@ class Timeline:
     def _fill_text(self):
         for line in self.lines:
             index = self.frame_at(line["phase"].end.seconds)
-            line["text"] = _SLOT.sub(lambda m: self._spoken_value(m.group(1), index), line["raw"])
+            line["text"] = _SLOT.sub(lambda m: self._spoken_value(m.group(1), index, spoken_number), line["raw"])
             if _UNIT_AFTER_NUMBER.search(line["text"]):
                 raise SceneError(f"旁白要写成口语，数字后面的单位用中文（牛、米、焦、瓦、秒）：{line['text']}")
             if "<" in line["text"]:
                 raise SceneError(f"旁白里不能有标签：{line['text']}")
 
-    def _spoken_value(self, id, index):
+    def _spoken_value(self, id, index, writer):
+        """旁白和板书里的数值。很大或很小的数由 writer 写成科学计数法。"""
         if id in self.constants:
-            return str(self.constants[id])
-        value = self._columns[id][index]
-        if value is None:
-            raise SceneError(f"旁白引用的 {id} 在这一刻没有数值")
-        digits = next(q["digits"] for q in self.quantities if q["id"] == id)
-        text = f"{value:.{digits}f}"
-        return text.rstrip("0").rstrip(".") if "." in text else text
+            value, digits = self.constants[id], 4
+        else:
+            value = self._columns[id][index]
+            if value is None:
+                raise SceneError(f"旁白或板书引用的 {id} 在这一刻没有数值")
+            digits = next(q["digits"] for q in self.quantities if q["id"] == id)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return writer(value, digits)
+        return str(value)
 
     def _build_captions(self, speech):
         self.captions = []
@@ -316,7 +321,8 @@ class Timeline:
                     for a, b in split_clauses(line["text"])
                 ]
             for clause in clauses:
-                self.captions.append({"t": line["start"] + clause["start"], "text": clause["text"]})
+                # 字幕显示 1.5×10⁴ 这样的符号写法，配音仍然读“1.5乘10的4次方”
+                self.captions.append({"t": line["start"] + clause["start"], "text": to_display(clause["text"])})
         self._caption_times = [caption["t"] for caption in self.captions]
 
     def _build_board(self):
@@ -328,7 +334,7 @@ class Timeline:
                     {
                         "expr": expr,
                         "t": phase.begin,
-                        "text": _SLOT.sub(lambda m: self._spoken_value(m.group(1), index), expr),
+                        "text": _SLOT.sub(lambda m: self._spoken_value(m.group(1), index, board_number), expr),
                     }
                 )
         self._board_times = [line["t"] for line in self.board_lines]
@@ -415,7 +421,7 @@ class Timeline:
             "phases": [{"label": p.label, "t0": p.begin, "t1": p.begin + p.seconds} for p in self.phases],
             "events": [{"t": event["moment"].seconds, "label": event["label"]} for event in self.events],
             "steps": [
-                {"t": line["start"], "title": line["phase"].label, "text": line["text"]} for line in self.lines
+                {"t": line["start"], "title": line["phase"].label, "text": to_display(line["text"])} for line in self.lines
             ],
             "answers": self.answer_values(),
             "frames": self._columns,

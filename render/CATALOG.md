@@ -25,15 +25,29 @@
 - 每一步代入计算都要有一行 `phase.board(...)`，板书用符号和单位，比如 N、J。
 - 题目所求的每一项都要用 `timeline.answer` 标记。过程结束后会变化的量（比如瞬时功率）要用 at 指定取值时刻。
 - 随过程变化的量，digits 至少是 2，暂停时才读得准。画面上的读数和面板用相同的小数位数。
+- 绝对值大于 10000 或小于 0.001 的数要用科学计数法。旁白和板书里的 {id} 会自动转换；画面上的读数用 sci(值, 小数位数) 生成，比如 Readout(lambda f: f"p = {sci(f.p, 0)} Pa", ...)；直接写在旁白或板书里的这类数，也要写成 1.5×10<sup>4</sup>、8×10<sup>-4</sup>（板书）或 1.5乘10的4次方、8乘10的负4次方（旁白）。
 
 ## 画面
 
 - 题目是滑轮组（含单个定滑轮、动滑轮）时一律用 PulleyRig，不要自己摆 Pulley 和 Rope。
+- 题目是杠杆时用 Lever，是斜面时用 Incline，物块用它们的 hang、block 方法生成，不要自己用 Rod 和 Block 拼。
+- 力不是竖直或水平时，ForceArrow 的 direction 写角度，比如沿斜面向上写 incline.angle。
 
 - 坐标：x 从 -7.11 到 7.11，y 从 -4 到 4，原点在中心。
 - 实物放在左边：x 不超过 0.75，y 不低于 -3.3。
 - 右上方由系统显示板书，底部由系统显示字幕，这两处不要放东西。Plot 自动放在右下方，不用给位置。
 - 文字不能超出画面，不能互相重叠，不能压在容器壁或物块边框上，否则会被退回，错误信息会说明是哪一帧的哪段文字。
+
+## 常见错误（以往被退回最多的，写完逐条对一遍）
+
+- 会动的物体，要算它在开始和结束两个位置时是否都还在实物区内（x 不超过 0.75、y 不低于 -3.3），不只看开始。
+- Ground、Road 的 y 不要低于 -3.1，下面还有阴影线。
+- 文字放在容器外面或物块正中，离容器壁、物块边框至少 0.3；两段文字之间也要留空，尤其是会移动的标签（比如两车相遇时各自的标签）。
+- 旁白和板书里的 `{id}` 只能是 `timeline.quantity` 或 `timeline.constant` 声明过的 id，不能是 Python 变量名。
+- 零件的属性（`block.top`、`block.bottom`、PulleyRig 的位置等）是函数，做加减要写 `lambda f: block.top(f) + 0.3`，不能写 `block.top + 0.3`。
+- 零件的 `show` 只能放 `timeline.quantity` 声明的量，常数不能放；有 `show` 的零件必须给 `name`。
+- 必须调用一次 `timeline.show_clock(id, 名称)`。
+- 随过程变化的量 digits 至少是 2。
 
 # 零件手册
 
@@ -84,6 +98,40 @@ height 是 lambda f: f.h 这样的函数，单位是米。max_height 是物体�
 - weight_bottom：物体下表面的纵坐标（函数）；weight_start：物体下表面的初始纵坐标（数值）。
 - end_start：绳端的初始纵坐标（数值）；meter：1 米对应的画面长度。
 
+## Lever(left, right, x=-3.2, y=0.6, width=5.6, angle=0, name=None, show=())
+
+杠杆。题目是杠杆时用它：一根杆加三角形支点 O，杆可以绕支点转动。
+
+left、right 是支点左边和右边的杆长（米）。杆的中点在 (x, y)，画面上的总长是 width，比例自动算。
+angle 是杆和水平方向的夹角（度，逆时针为正），可以写 lambda f: ...，让杠杆转起来。
+name、show 用于点击杆。用 stage.add(*lever.parts) 加到舞台上。
+
+属性和方法：
+- pivot_x、pivot_y：支点坐标（数值）；scale：1 米对应的画面长度。
+- x_at(d)、y_at(d)：杆上离支点 d 米的点（支点左边 d 取负数），返回函数，可直接给 ForceArrow 当 x、y。
+- hang(d, w=0.7, h=0.6, text=None, drop=0.5, color=OBJECT, name=None, show=())：在杆上 d 处用细绳挂一个物块，
+  物块上沿比挂点低 drop，文字放不下时物块会自动加宽。返回一个零件，要另外 stage.add。
+- arm(d, text, offset=0.5, color=ACCENT)：标出支点到 d 处的力臂。竖直方向的力，力臂就是水平距离，
+  所以标注线是水平的。offset 为正画在杆的上方，为负画在下方。返回一个零件，要另外 stage.add。
+
+## Incline(length, height, x0=-6.5, y0=-2.7, width=5.8, rise_to='right', length_text=None, height_text=None)
+
+斜面。题目是斜面时用它：直角三角形，底边在 y0，坡脚在 x0，坡面向右上升（rise_to="left" 时向左上升）。
+
+length、height 是斜面的长和高（米）。width 是坡面水平方向在画面上的最大长度，比例自动算，
+高度太高时会自动缩小。length_text、height_text 写在坡面和高的标注旁边，比如 "L = 4 m"。
+用 stage.add(*incline.parts) 加到舞台上。
+
+属性和方法：
+- angle：坡面的方向（度），ForceArrow 的 direction 写它就是沿斜面向上，写 angle + 180 是沿斜面向下。
+- scale：1 米对应的画面长度；top_x、top_y：坡顶的坐标（数值）。
+- x_at(s)、y_at(s)：坡面上离坡脚 s 米的点，s 可以是 lambda f: ...，返回函数。
+- block(s, w=0.9, h=0.6, text=None, color=OBJECT, name=None, show=())：放在坡面上的物块，返回零件，要另外 stage.add。
+  s 是物块沿斜面走过的距离（米），s=0 时物块在坡脚，s=length 时物块到坡顶（画面上按物块长度压缩了一点）。
+- block_x(s, w=0.9, h=0.6, at="center")、block_y(...)：物块上一点的坐标，返回函数，给 ForceArrow 当起点。
+  at 是 center（中心）、front（朝坡顶那一面的中点）或 back（朝坡脚那一面的中点）。
+  沿斜面向上的拉力从 front 画，沿斜面向下的摩擦力从 back 画，箭头就不会压住物块上的字。
+
 ## Rod(start, end, color='#AEB8C4', width=4)
 
 刚性连杆，连接 start 和 end 两点，比如滑轮的支架、挂钩。点写成 (x, y)。
@@ -120,13 +168,17 @@ top、bottom 是上下表面的纵坐标，是函数，可以直接当作绳子�
 
 ## ForceArrow(x, y, length, direction='up', text=None, color='#FF7A59')
 
-力的箭头，从 (x, y) 出发，朝 direction（up、down、left、right）画，长度 length。
+力的箭头，从 (x, y) 出发，朝 direction 画，长度 length。
 
-text 写在箭头末端旁边。长度小于 0.05 时不画。
+direction 是 up、down、left、right，或者一个角度（度，从水平向右逆时针量），
+比如沿斜面向上写 incline.angle，沿斜面向下写 incline.angle + 180。
+text 写在箭头旁边。长度小于 0.05 时不画。
 
 ## Readout(text, x, y, size=24, color='#E6EBF0', anchor='center')
 
 文字。text 是字符串或 lambda f: ...，anchor 指 (x, y) 对齐文字的哪一边：center、left、right。
+
+超出画面或进入右侧板书区、底部字幕区时会自动往里挪，但不会避开别的文字和线条。
 
 ## Ruler(x, y0, y1, text=None, color='#5DA9E9', text_side='right')
 
@@ -193,6 +245,10 @@ road.scale 是每米对应的画面长度。
 ## Cart(x, y, w=0.9, h=0.42, text=None, color='#5DA9E9', name=None, show=())
 
 小车或火车，车身中心横坐标是 x，车轮压在路面 y 上。text 写在车身上。火车就把 w 设成车长乘以 road.scale。
+
+## sci(value, digits=2)
+
+画面上显示数字时用它：很大或很小的数写成 1.5×10⁴，否则保留 digits 位小数。
 
 ## Phase（由 timeline.phase 返回）
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatNumber } from "@/lib/format";
 import type { Timeline } from "@/lib/types";
 import Markup from "./Markup";
 
@@ -38,7 +39,7 @@ export default function VideoPlayer({ timeline, videoSrc }: Props) {
       const value = timeline.frames[id]?.[index];
       const quantity = quantityById.get(id);
       if (value === null || value === undefined || !quantity) return "—";
-      return value.toFixed(quantity.digits);
+      return formatNumber(value, quantity.digits);
     },
     [timeline, quantityById],
   );
@@ -173,7 +174,7 @@ export default function VideoPlayer({ timeline, videoSrc }: Props) {
             下一帧
           </button>
           <span>
-            {timeline.clock.label} {format(timeline.clock.id, frame)} {timeline.clock.unit}
+            {timeline.clock.label} <Markup text={format(timeline.clock.id, frame)} /> {timeline.clock.unit}
           </span>
           {videoSrc && (
             <a href={videoSrc} download="定格物理讲解.mp4">
@@ -215,7 +216,7 @@ export default function VideoPlayer({ timeline, videoSrc }: Props) {
                     </th>
                     <td>{quantity.name}</td>
                     <td className="value">
-                      {value} {value === "—" ? "" : quantity.unit}
+                      <Markup text={value} /> {value === "—" ? "" : quantity.unit}
                     </td>
                   </tr>
                 );

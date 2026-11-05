@@ -6,7 +6,11 @@
 import os
 
 import numpy as np
-from manim import Arc, Arrow, Axes, Circle, Dot, Line, Rectangle, Text, VGroup, VMobject
+import math
+
+from manim import Arc, Arrow, Axes, Circle, DashedLine, Dot, Line, Polygon, Rectangle, Text, VGroup, VMobject
+
+from .numbers import needs_scientific, scientific
 
 FONT = os.environ.get("PHYSKIT_FONT", "Noto Sans SC")
 ROPE = "#E8C547"
@@ -16,7 +20,7 @@ ACCENT = "#FF7A59"
 INK = "#E6EBF0"
 WATER = "#3FA7D6"
 
-_COLLINEAR = 1e-6
+_COLLINEAR = 1e-4  # 两段的夹角正弦小于它就算共线，约 0.006 度
 
 
 def _val(param, f):
@@ -25,6 +29,22 @@ def _val(param, f):
 
 def _point(x, y):
     return np.array([x, y, 0.0])
+
+
+# 实物区的边界：左、上留出画面边缘，右边是板书和坐标图，下面是字幕。stage.py 的布局检查用同一组数
+STAGE_LEFT = -7.05
+STAGE_TOP = 3.95
+STAGE_RIGHT = 0.75
+CAPTION_TOP = -3.3
+
+
+def _keep_inside(label):
+    """文字超出实物区时往里挪，挪到刚好贴着边界。只管不出界，不负责避开别的文字和线条。"""
+    dx = max(STAGE_LEFT - label.get_left()[0], 0) - max(label.get_right()[0] - STAGE_RIGHT, 0)
+    dy = max(CAPTION_TOP - label.get_bottom()[1], 0) - max(label.get_top()[1] - STAGE_TOP, 0)
+    if dx or dy:
+        label.shift(_point(dx, dy))
+    return label
 
 
 def _text(content, size, color):
@@ -81,6 +101,10 @@ class _Beam(Part):
                 )
             )
         return group
+
+
+    def edges(self, f):
+        return [(self.x0, self.y, self.x1, self.y)]
 
 
 class Ceiling(_Beam):
@@ -418,9 +442,11 @@ _DIRECTIONS = {"up": (0, 1), "down": (0, -1), "left": (-1, 0), "right": (1, 0)}
 
 
 class ForceArrow(Part):
-    """力的箭头，从 (x, y) 出发，朝 direction（up、down、left、right）画，长度 length。
+    """力的箭头，从 (x, y) 出发，朝 direction 画，长度 length。
 
-    text 写在箭头末端旁边。长度小于 0.05 时不画。
+    direction 是 up、down、left、right，或者一个角度（度，从水平向右逆时针量），
+    比如沿斜面向上写 incline.angle，沿斜面向下写 incline.angle + 180。
+    text 写在箭头旁边。长度小于 0.05 时不画。
     """
 
     def __init__(self, x, y, length, direction="up", text=None, color=ACCENT):
@@ -433,7 +459,11 @@ class ForceArrow(Part):
         if length < 0.05:
             return group
         start = _point(_val(self.x, f), _val(self.y, f))
-        dx, dy = _DIRECTIONS[self.direction]
+        if isinstance(self.direction, str):
+            dx, dy = _DIRECTIONS[self.direction]
+        else:
+            angle = math.radians(_val(self.direction, f))
+            dx, dy = math.cos(angle), math.sin(angle)
         end = start + length * _point(dx, dy)
         group.add(
             Arrow(start, end, buff=0, color=self.color, stroke_width=5, max_tip_length_to_length_ratio=0.3)
@@ -441,8 +471,17 @@ class ForceArrow(Part):
         content = _val(self.text, f)
         if content:
             label = _text(content, 22, self.color)
-            side = _point(1, 0) if dy else _point(0, 1)
-            group.add(label.next_to(end if dy == 0 else (start + end) / 2, side, buff=0.15))
+            if isinstance(self.direction, str):
+                side = _point(1, 0) if dy else _point(0, 1)
+                label.next_to(end if dy == 0 else (start + end) / 2, side, buff=0.15)
+            else:
+                # 斜的箭头：文字放在箭头末端偏上的一侧，避开坡面和地面
+                nx, ny = (-dy, dx) if dx <= 0 else (dy, -dx)
+                if ny < 0:
+                    nx, ny = -nx, -ny
+                side = _point(nx, ny) if ny > 0.2 else _point(1, 0)
+                label.next_to(end, side, buff=0.1)
+            group.add(_keep_inside(label))
         return group
 
 
@@ -450,7 +489,10 @@ _ANCHORS = {"center": None, "left": _point(-1, 0), "right": _point(1, 0)}
 
 
 class Readout(Part):
-    """文字。text 是字符串或 lambda f: ...，anchor 指 (x, y) 对齐文字的哪一边：center、left、right。"""
+    """文字。text 是字符串或 lambda f: ...，anchor 指 (x, y) 对齐文字的哪一边：center、left、right。
+
+    超出画面或进入右侧板书区、底部字幕区时会自动往里挪，但不会避开别的文字和线条。
+    """
 
     def __init__(self, text, x, y, size=24, color=INK, anchor="center"):
         super().__init__()
@@ -461,8 +503,8 @@ class Readout(Part):
         target = _point(_val(self.x, f), _val(self.y, f))
         side = _ANCHORS[self.anchor]
         if side is None:
-            return label.move_to(target)
-        return label.move_to(target, aligned_edge=side)
+            return _keep_inside(label.move_to(target))
+        return _keep_inside(label.move_to(target, aligned_edge=side))
 
 
 class Ruler(Part):
@@ -480,7 +522,7 @@ class Ruler(Part):
         content = _val(self.text, f)
         if content:
             direction = {"right": _point(1, 0), "left": _point(-1, 0), "top": _point(0, 1)}[self.text_side]
-            group.add(_text(content, 22, self.color).next_to(_point(x, y1), direction, buff=0.15))
+            group.add(_keep_inside(_text(content, 22, self.color).next_to(_point(x, y1), direction, buff=0.15)))
         return group
 
 
@@ -525,7 +567,9 @@ class Plot(Part):
             for previous, current, following in zip(points, points[1:], points[2:]):
                 a = current[1] - previous[1]
                 b = following[1] - current[1]
-                if abs(a[0] * b[1] - a[1] * b[0]) > _COLLINEAR:
+                # 按夹角判断是否转弯。相邻两帧的线段很短，用叉积的绝对值会把平缓的曲线误判成直线
+                length = float(np.linalg.norm(a) * np.linalg.norm(b))
+                if length > 0 and abs(a[0] * b[1] - a[1] * b[0]) / length > _COLLINEAR:
                     knots.append(current)
             knots.append(points[-1])
             self._knots.append(knots)
@@ -534,12 +578,16 @@ class Plot(Part):
         group = VGroup(self._axes)
         x0, x1, dx = self.x_range
         y0, y1, dy = self.y_range
+        x_scientific = any(needs_scientific(value) for value in _ticks(x0, x1, dx))
+        y_scientific = any(needs_scientific(value) for value in _ticks(y0, y1, dy))
         for value in _ticks(x0, x1, dx):
-            group.add(_text(_tick_text(value), 16, STEEL).next_to(self._axes.c2p(value, y0), _point(0, -1), buff=0.1))
+            group.add(_text(_tick_text(value, x_scientific), 16, STEEL).next_to(self._axes.c2p(value, y0), _point(0, -1), buff=0.1))
         for value in _ticks(y0, y1, dy):
             if value != y0:
-                group.add(_text(_tick_text(value), 16, STEEL).next_to(self._axes.c2p(x0, value), _point(-1, 0), buff=0.1))
-        group.add(_text(self.x_label, 18, STEEL).next_to(self._axes.c2p(x1, y0), _point(0, -1), buff=0.36))
+                group.add(_text(_tick_text(value, y_scientific), 16, STEEL).next_to(self._axes.c2p(x0, value), _point(-1, 0), buff=0.1))
+        # 横轴名称右端和轴的末端对齐，名称再长也不会伸出画面右边
+        group.add(_text(self.x_label, 18, STEEL).next_to(
+            self._axes.c2p(x1, y0), _point(0, -1), buff=0.36, aligned_edge=_point(1, 0)))
         group.add(_text(self.y_label, 18, STEEL).next_to(self._axes.c2p(x0, y1), _point(0, 1), buff=0.1))
         for series, knots in zip(self.series, self._knots):
             ghost = VMobject(stroke_color=series.color, stroke_width=2, stroke_opacity=0.3)
@@ -562,6 +610,7 @@ class Plot(Part):
 
 _BACKGROUND = "#10151C"
 _SIDES = {"top": _point(0, 1), "bottom": _point(0, -1), "left": _point(-1, 0), "right": _point(1, 0)}
+_OPPOSITE = {"top": "bottom", "bottom": "top", "left": "right", "right": "left"}
 
 
 class Wire(Part):
@@ -596,14 +645,21 @@ class _Component(Part):
     def _axis(self):
         return _point(1, 0) if self.horizontal else _point(0, 1)
 
+    def _place_label(self, content, f, text_side):
+        width, height = self._extent()
+        side = _SIDES[text_side]
+        reach = (height if text_side in ("top", "bottom") else width) / 2 + 0.16
+        return _text(content, 20, INK).next_to(self._center(f) + side * reach, side, buff=0)
+
     def _label(self, f):
         content = _val(self.text, f)
         if not content:
             return None
-        width, height = self._extent()
-        side = _SIDES[self.text_side]
-        reach = (height if self.text_side in ("top", "bottom") else width) / 2 + 0.16
-        return _text(content, 20, INK).next_to(self._center(f) + side * reach, side, buff=0)
+        label = self._place_label(content, f, self.text_side)
+        if _keep_inside(label.copy()).get_center()[0] != label.get_center()[0] or                 _keep_inside(label.copy()).get_center()[1] != label.get_center()[1]:
+            # 这一侧放不下时换到对面，硬往里挪会压住元件本身
+            label = _keep_inside(self._place_label(content, f, _OPPOSITE[self.text_side]))
+        return label
 
     def _with_label(self, group, f):
         label = self._label(f)
@@ -806,12 +862,315 @@ class Cart(Part):
         return []
 
 
+def _corners(cx, cy, w, h, angle):
+    """以 (cx, cy) 为中心、转过 angle 弧度的矩形的四个角。"""
+    c, s = math.cos(angle), math.sin(angle)
+    return [
+        (cx + dx * c - dy * s, cy + dx * s + dy * c)
+        for dx, dy in ((-w / 2, -h / 2), (w / 2, -h / 2), (w / 2, h / 2), (-w / 2, h / 2))
+    ]
+
+
+class _TiltedBlock(Part):
+    """可以倾斜的物块，供 Lever.hang 和 Incline.block 使用。文字始终正着写。"""
+
+    def __init__(self, center, w, h, angle, text, color, name, show, string_top=None):
+        super().__init__(name, show)
+        self.center, self.w, self.h, self.angle, self.text, self.color = center, w, h, angle, text, color
+        self.string_top = string_top  # 挂在杠杆上时，细绳上端的点
+
+    def _corners(self, f):
+        x, y = self.center(f)
+        return _corners(x, y, self.w, self.h, _val(self.angle, f))
+
+    def _label(self, f):
+        """文字放不下时先缩小字号，最小到 13 号。"""
+        content = _val(self.text, f)
+        if not content:
+            return None
+        for size in (18, 16, 14, 13):
+            label = _text(content, size, INK)
+            if label.width <= self.w * 0.9 and label.height <= self.h * 0.9:
+                break
+        return label
+
+    def draw(self, f):
+        corners = self._corners(f)
+        group = VGroup()
+        if self.string_top is not None:
+            top = self.string_top(f)
+            x, y = self.center(f)
+            group.add(Line(_point(*top), _point(x, y + self.h / 2), color=ROPE, stroke_width=3))
+        group.add(Polygon(*[_point(px, py) for px, py in corners], stroke_color=self.color,
+                          fill_color=self.color, fill_opacity=0.35))
+        label = self._label(f)
+        if label:
+            group.add(label.move_to(_point(*self.center(f))))
+        return group
+
+    def bounds(self, f):
+        xs, ys = zip(*self._corners(f))
+        return min(xs), min(ys), max(xs), max(ys)
+
+    def edges(self, f):
+        corners = self._corners(f)
+        return [(*corners[i], *corners[(i + 1) % 4]) for i in range(4)]
+
+    def problems(self, f):
+        label = self._label(f)
+        if label and (label.width > self.w * 0.9 or label.height > self.h * 0.9):
+            return [f"物块上的文字「{_val(self.text, f)}」放不下：文字宽 {label.width:.2f}，物块宽 {self.w}，"
+                    "把物块加宽或把文字移到旁边"]
+        return []
+
+
+class _LeverBar(Part):
+    def __init__(self, lever, name, show):
+        super().__init__(name, show)
+        self.lever = lever
+
+    def _ends(self, f):
+        lever = self.lever
+        return (lever.x_at(-lever.left)(f), lever.y_at(-lever.left)(f),
+                lever.x_at(lever.right)(f), lever.y_at(lever.right)(f))
+
+    def draw(self, f):
+        x0, y0, x1, y1 = self._ends(f)
+        lever = self.lever
+        return VGroup(
+            Line(_point(x0, y0), _point(x1, y1), color="#D9B26F", stroke_width=9),
+            Dot(_point(lever.pivot_x, lever.pivot_y), radius=0.07, color=INK),
+        )
+
+    def bounds(self, f):
+        x0, y0, x1, y1 = self._ends(f)
+        return min(x0, x1), min(y0, y1) - 0.12, max(x0, x1), max(y0, y1) + 0.12
+
+    def edges(self, f):
+        return [self._ends(f)]
+
+
+class _Fulcrum(Part):
+    static = True
+    HALF = 0.38  # 底座半宽
+
+    def __init__(self, lever):
+        super().__init__()
+        self.lever = lever
+        self.x, self.y = lever.pivot_x, lever.pivot_y
+
+    def draw(self, f):
+        x, y = self.x, self.y
+        return VGroup(
+            Polygon(_point(x, y - 0.08), _point(x - 0.24, y - 0.55), _point(x + 0.24, y - 0.55),
+                    stroke_color=STEEL, fill_color=STEEL, fill_opacity=0.3),
+            Line(_point(x - self.HALF, y - 0.55), _point(x + self.HALF, y - 0.55), color=STEEL, stroke_width=4),
+            _text("O", 20, INK).move_to(_point(x - 0.36, y - 0.22)),
+        )
+
+    def problems(self, f):
+        found = []
+        for block in self.lever.hung:
+            x0, y0, x1, y1 = block.bounds(f)
+            if x0 < self.x + self.HALF + 0.05 and self.x - self.HALF - 0.05 < x1 and y0 < self.y and self.y - 0.6 < y1:
+                found.append("挂在杠杆上的物块和支点叠在一起了：把 Lever 的 width 加大，或者把物块改窄、drop 改大")
+        return found
+
+
+class _ArmMark(Part):
+    def __init__(self, lever, d, text, offset, color):
+        super().__init__()
+        self.lever, self.d, self.text, self.offset, self.color = lever, d, text, offset, color
+
+    def draw(self, f):
+        lever = self.lever
+        d = _val(self.d, f)
+        px, py = lever.pivot_x, lever.pivot_y
+        x, y = lever.x_at(d)(f), lever.y_at(d)(f)
+        mark_y = (max(py, y) + self.offset) if self.offset > 0 else (min(py, y) + self.offset)
+        group = VGroup()
+        if abs(x - px) < 0.05:
+            return group
+        for gx, gy in ((px, py), (x, y)):
+            group.add(DashedLine(_point(gx, gy), _point(gx, mark_y), color=self.color, stroke_width=2,
+                                 dash_length=0.06))
+        group.add(Arrow(_point((px + x) / 2, mark_y), _point(px, mark_y), buff=0, color=self.color,
+                        stroke_width=3, max_tip_length_to_length_ratio=0.12))
+        group.add(Arrow(_point((px + x) / 2, mark_y), _point(x, mark_y), buff=0, color=self.color,
+                        stroke_width=3, max_tip_length_to_length_ratio=0.12))
+        content = _val(self.text, f)
+        if content:
+            side = _point(0, 1) if self.offset > 0 else _point(0, -1)
+            label = _text(content, 20, self.color).next_to(_point((px + x) / 2, mark_y), side, buff=0.1)
+            # 力臂很短时文字比标注线还宽，不让它越过支点，免得和另一边的力臂文字重叠
+            if x < px and label.get_right()[0] > px - 0.1:
+                label.shift(_point(px - 0.1 - label.get_right()[0], 0))
+            elif x > px and label.get_left()[0] < px + 0.1:
+                label.shift(_point(px + 0.1 - label.get_left()[0], 0))
+            group.add(_keep_inside(label))
+        return group
+
+
+class Lever:
+    """杠杆。题目是杠杆时用它：一根杆加三角形支点 O，杆可以绕支点转动。
+
+    left、right 是支点左边和右边的杆长（米）。杆的中点在 (x, y)，画面上的总长是 width，比例自动算。
+    angle 是杆和水平方向的夹角（度，逆时针为正），可以写 lambda f: ...，让杠杆转起来。
+    name、show 用于点击杆。用 stage.add(*lever.parts) 加到舞台上。
+
+    属性和方法：
+    - pivot_x、pivot_y：支点坐标（数值）；scale：1 米对应的画面长度。
+    - x_at(d)、y_at(d)：杆上离支点 d 米的点（支点左边 d 取负数），返回函数，可直接给 ForceArrow 当 x、y。
+    - hang(d, w=0.7, h=0.6, text=None, drop=0.5, color=OBJECT, name=None, show=())：在杆上 d 处用细绳挂一个物块，
+      物块上沿比挂点低 drop，文字放不下时物块会自动加宽。返回一个零件，要另外 stage.add。
+    - arm(d, text, offset=0.5, color=ACCENT)：标出支点到 d 处的力臂。竖直方向的力，力臂就是水平距离，
+      所以标注线是水平的。offset 为正画在杆的上方，为负画在下方。返回一个零件，要另外 stage.add。
+    """
+
+    def __init__(self, left, right, x=-3.2, y=0.6, width=5.6, angle=0, name=None, show=()):
+        if left <= 0 or right <= 0:
+            raise ValueError("Lever 的 left 和 right 都要大于 0，单位是米")
+        self.left, self.right, self.angle = left, right, angle
+        self.scale = width / (left + right)
+        self.pivot_x = x - width / 2 + left * self.scale
+        self.pivot_y = y
+        self.hung = []
+        self.parts = [_Fulcrum(self), _LeverBar(self, name, show)]
+
+    def _direction(self, f):
+        angle = math.radians(_val(self.angle, f))
+        return math.cos(angle), math.sin(angle)
+
+    def x_at(self, d):
+        return lambda f: self.pivot_x + _val(d, f) * self.scale * self._direction(f)[0]
+
+    def y_at(self, d):
+        return lambda f: self.pivot_y + _val(d, f) * self.scale * self._direction(f)[1]
+
+    def hang(self, d, w=0.7, h=0.6, text=None, drop=0.5, color=OBJECT, name=None, show=()):
+        if isinstance(text, str):
+            w = max(w, _text(text, 16, INK).width / 0.9 + 0.05)  # 物块按文字加宽
+        top = lambda f: (self.x_at(d)(f), self.y_at(d)(f))
+        center = lambda f: (self.x_at(d)(f), self.y_at(d)(f) - drop - h / 2)
+        block = _TiltedBlock(center, w, h, 0, text, color, name, show, string_top=top)
+        self.hung.append(block)
+        return block
+
+    def arm(self, d, text, offset=0.5, color=ACCENT):
+        return _ArmMark(self, d, text, offset, color)
+
+
+class _Slope(Part):
+    static = True
+
+    def __init__(self, incline):
+        super().__init__()
+        self.incline = incline
+
+    def _corners(self):
+        i = self.incline
+        return (i.foot_x, i.y0), (i.top_x, i.y0 + i.rise), (i.top_x, i.y0)
+
+    def draw(self, f):
+        i = self.incline
+        foot, top, corner = self._corners()
+        group = VGroup(
+            Polygon(*[_point(*p) for p in (foot, top, corner)], stroke_color=STEEL, fill_color=STEEL,
+                    fill_opacity=0.18, stroke_width=4),
+        )
+        normal = (-math.sin(i.radians) * i.sign, math.cos(i.radians))  # 坡面朝外的法线
+        if i.length_text:
+            mid = ((foot[0] + top[0]) / 2, (foot[1] + top[1]) / 2)
+            label = _text(i.length_text, 20, INK).move_to(_point(mid[0] - normal[0] * 0.45, mid[1] - normal[1] * 0.45))
+            group.add(label)
+        if i.height_text:
+            x = corner[0] + 0.3 * i.sign
+            group.add(Line(_point(x, corner[1]), _point(x, top[1]), color=OBJECT, stroke_width=3))
+            for y in (corner[1], top[1]):
+                group.add(Line(_point(x - 0.08, y), _point(x + 0.08, y), color=OBJECT, stroke_width=3))
+            side = _point(i.sign, 0)
+            group.add(_keep_inside(_text(i.height_text, 20, OBJECT).next_to(_point(x, (corner[1] + top[1]) / 2), side, buff=0.12)))
+        return group
+
+    def edges(self, f):
+        foot, top, corner = self._corners()
+        return [(*foot, *top), (*top, *corner)]
+
+
+class Incline:
+    """斜面。题目是斜面时用它：直角三角形，底边在 y0，坡脚在 x0，坡面向右上升（rise_to="left" 时向左上升）。
+
+    length、height 是斜面的长和高（米）。width 是坡面水平方向在画面上的最大长度，比例自动算，
+    高度太高时会自动缩小。length_text、height_text 写在坡面和高的标注旁边，比如 "L = 4 m"。
+    用 stage.add(*incline.parts) 加到舞台上。
+
+    属性和方法：
+    - angle：坡面的方向（度），ForceArrow 的 direction 写它就是沿斜面向上，写 angle + 180 是沿斜面向下。
+    - scale：1 米对应的画面长度；top_x、top_y：坡顶的坐标（数值）。
+    - x_at(s)、y_at(s)：坡面上离坡脚 s 米的点，s 可以是 lambda f: ...，返回函数。
+    - block(s, w=0.9, h=0.6, text=None, color=OBJECT, name=None, show=())：放在坡面上的物块，返回零件，要另外 stage.add。
+      s 是物块沿斜面走过的距离（米），s=0 时物块在坡脚，s=length 时物块到坡顶（画面上按物块长度压缩了一点）。
+    - block_x(s, w=0.9, h=0.6, at="center")、block_y(...)：物块上一点的坐标，返回函数，给 ForceArrow 当起点。
+      at 是 center（中心）、front（朝坡顶那一面的中点）或 back（朝坡脚那一面的中点）。
+      沿斜面向上的拉力从 front 画，沿斜面向下的摩擦力从 back 画，箭头就不会压住物块上的字。
+    """
+
+    def __init__(self, length, height, x0=-6.5, y0=-2.7, width=5.8, rise_to="right",
+                 length_text=None, height_text=None):
+        if not 0 < height < length:
+            raise ValueError("Incline 的 height 要大于 0 且小于 length")
+        base = math.sqrt(length ** 2 - height ** 2)
+        self.length, self.height = length, height
+        self.sign = 1 if rise_to == "right" else -1
+        self.scale = min(width / base, 4.6 / height)
+        self.radians = math.asin(height / length)
+        self.angle = math.degrees(self.radians) if self.sign > 0 else 180 - math.degrees(self.radians)
+        self.foot_x, self.y0 = x0, y0
+        self.top_x = x0 + self.sign * base * self.scale
+        self.rise = height * self.scale
+        self.top_y = y0 + self.rise
+        self.length_text, self.height_text = length_text, height_text
+        self.parts = [_Slope(self)]
+
+    def x_at(self, s):
+        return lambda f: self.foot_x + self.sign * _val(s, f) * self.scale * math.cos(self.radians)
+
+    def y_at(self, s):
+        return lambda f: self.y0 + _val(s, f) * self.scale * math.sin(self.radians)
+
+    def _block_center(self, s, w, h, at="center"):
+        travel = self.length * self.scale - w
+        shift = {"center": 0, "front": w / 2, "back": -w / 2}[at]
+        def center(f):
+            along = w / 2 + _val(s, f) / self.length * travel + shift
+            cx = self.foot_x + self.sign * along * math.cos(self.radians)
+            cy = self.y0 + along * math.sin(self.radians)
+            # 从坡面沿法线抬起半个物块高
+            return cx - self.sign * math.sin(self.radians) * h / 2, cy + math.cos(self.radians) * h / 2
+        return center
+
+    def block_x(self, s, w=0.9, h=0.6, at="center"):
+        center = self._block_center(s, w, h, at)
+        return lambda f: center(f)[0]
+
+    def block_y(self, s, w=0.9, h=0.6, at="center"):
+        center = self._block_center(s, w, h, at)
+        return lambda f: center(f)[1]
+
+    def block(self, s, w=0.9, h=0.6, text=None, color=OBJECT, name=None, show=()):
+        angle = self.radians * self.sign
+        return _TiltedBlock(self._block_center(s, w, h), w, h, angle, text, color, name, show)
+
+
 def _ticks(start, stop, step):
     count = int(round((stop - start) / step))
     return [start + step * i for i in range(count + 1)]
 
 
-def _tick_text(value):
+def _tick_text(value, whole_axis=False):
+    """whole_axis 为真时整根轴都用科学计数法，同一根轴上不混用两种写法。"""
+    if whole_axis and value != 0:
+        return scientific(value)
     return str(int(value)) if float(value).is_integer() else f"{value:g}"
 
 

@@ -1,4 +1,6 @@
+import { formatAny } from "@/lib/format";
 import type { Solution } from "@/lib/types";
+import Markup from "./Markup";
 
 /** 文字解析：模型独立解题的结果，不用等视频生成。 */
 export default function SolutionPanel({ solution }: { solution: Solution }) {
@@ -12,7 +14,7 @@ export default function SolutionPanel({ solution }: { solution: Solution }) {
           <ul>
             {solution.knowns.map((known, index) => (
               <li key={index}>
-                {known.name} {known.symbol} = {known.value} {known.unit}
+                {known.name} {known.symbol} = <Markup text={formatAny(known.value)} /> {known.unit}
               </li>
             ))}
           </ul>
@@ -27,7 +29,11 @@ export default function SolutionPanel({ solution }: { solution: Solution }) {
               <li key={index}>
                 <b>{step.title}</b>
                 {step.explain && <p>{step.explain}</p>}
-                {step.formula && <p className="formula">{step.formula}</p>}
+                {step.formula && (
+                  <p className="formula">
+                    <Markup text={step.formula} />
+                  </p>
+                )}
               </li>
             ))}
           </ol>
@@ -40,7 +46,7 @@ export default function SolutionPanel({ solution }: { solution: Solution }) {
           <ul>
             {solution.answers.map((answer, index) => (
               <li key={index}>
-                {answer.label}：{answer.value} {answer.unit}
+                {answer.label}：<Markup text={formatAny(answer.value)} /> {answer.unit}
               </li>
             ))}
           </ul>

@@ -17,9 +17,11 @@ class DeepSeekError(Exception):
     pass
 
 
-def chat(messages, model, json_mode=False):
+def chat(messages, model, json_mode=False, effort=""):
     """返回 (正文, 用量)。"""
     payload = {"model": model, "messages": messages, "max_tokens": MAX_TOKENS}
+    if effort:
+        payload["reasoning_effort"] = effort  # low、high、max，空表示用模型默认
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
     body = json.dumps(payload).encode("utf-8")

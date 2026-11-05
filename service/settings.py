@@ -46,6 +46,8 @@ DEEPSEEK_URL = os.environ.get("DEEPSEEK_URL", "https://api.deepseek.com")
 VISION_MODEL = os.environ.get("DEEPSEEK_VISION_MODEL", "deepseek-flash")
 SOLVE_MODEL = os.environ.get("DEEPSEEK_SOLVE_MODEL", "deepseek-v4-pro")
 AUTHOR_MODEL = os.environ.get("DEEPSEEK_AUTHOR_MODEL", "deepseek-flash")
+# 实测 low 比默认的 high 快约三分之一，重写次数也没增加（7 道题：52 秒对 80 秒）
+AUTHOR_EFFORT = os.environ.get("DEEPSEEK_AUTHOR_EFFORT", "low")
 MAX_AUTHOR_ATTEMPTS = int(os.environ.get("MAX_AUTHOR_ATTEMPTS", "4"))
 BREEZE_URL = os.environ.get("BREEZE_URL", "https://api.breeze.blue")
 BREEZE_VOICE = os.environ.get("BREEZE_VOICE", "voc_xb3zjqcmwp44")  # 晨曦讲解员

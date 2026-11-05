@@ -14,6 +14,8 @@ from .parts import (
     Ceiling,
     ForceArrow,
     Ground,
+    Incline,
+    Lever,
     Meter,
     Over,
     Plot,
@@ -32,6 +34,7 @@ from .parts import (
     Under,
     Wire,
 )
+from .numbers import sci
 from .stage import Stage
 from .timeline import SceneError, Timeline
 
@@ -43,6 +46,8 @@ __all__ = [
     "Ceiling",
     "Ground",
     "PulleyRig",
+    "Lever",
+    "Incline",
     "Rod",
     "Pulley",
     "Over",
@@ -65,6 +70,7 @@ __all__ = [
     "Switch",
     "Road",
     "Cart",
+    "sci",
     "ROPE",
     "OBJECT",
     "STEEL",

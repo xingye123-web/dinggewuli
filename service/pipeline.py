@@ -9,7 +9,7 @@ import time
 
 from render.scene_check import check_code
 
-from . import deepseek, narrate, prompts, runner, settings, store
+from . import deepseek, narrate, part_requests, prompts, runner, settings, store
 from .deepseek import DeepSeekError
 from .narrate import NarrationError
 
@@ -110,18 +110,20 @@ def _author(job_id, text, figure, solution, tracker):
     """写代码，不通过就把问题交回给模型修改。"""
     directory = store.job_dir(job_id)
     messages = [
-        {"role": "system", "content": prompts.author_system()},
+        {"role": "system", "content": prompts.author_system(text, solution.get("topic", ""))},
         {"role": "user", "content": prompts.author_task(text, figure, solution)},
     ]
     history = []
     for attempt in range(1, settings.MAX_AUTHOR_ATTEMPTS + 1):
         tracker.enter("authoring", attempt=attempt)
-        reply, usage = deepseek.chat(messages, settings.AUTHOR_MODEL)
+        reply, usage = deepseek.chat(messages, settings.AUTHOR_MODEL, effort=settings.AUTHOR_EFFORT)
         tracker.add_usage(usage)
 
         unsupported = _UNSUPPORTED.match(reply)
         if unsupported:
-            raise PipelineStop("unsupported", [unsupported.group(1).strip()])
+            reason = unsupported.group(1).strip()
+            part_requests.record(job_id, text, solution.get("topic", ""), unsupported=reason, attempts=attempt)
+            raise PipelineStop("unsupported", [reason])
         match = _CODE_BLOCK.search(reply)
         code = match.group(1) if match else reply
         (directory / f"attempt{attempt}.py").write_text(code, encoding="utf-8")
@@ -139,6 +141,9 @@ def _author(job_id, text, figure, solution, tracker):
         store.update_status(job_id, attempts=history)
         if not problems:
             (directory / "scene.py").write_text(code, encoding="utf-8")
+            waiting = part_requests.record(job_id, text, solution.get("topic", ""), code=code, attempts=attempt)
+            if waiting:
+                print(f"零件库有 {waiting} 种零件待做，见 .dev/requests/待处理.md", flush=True)
             return code, prepared
 
         messages.append({"role": "assistant", "content": reply})
@@ -149,11 +154,11 @@ def _author(job_id, text, figure, solution, tracker):
 def _narrate_and_render(job_id, code, prepared, tracker):
     directory = store.job_dir(job_id)
     tracker.enter("narrating", narration_total=len(prepared["narration"]))
-    voices = narrate.synthesize_all(
+    voice = narrate.synthesize_all(
         prepared["narration"],
         lambda done, total: store.update_status(job_id, narration_done=done),
     )
-    speech = [{"text": v["text"], "seconds": v["seconds"], "clauses": v["clauses"]} for v in voices]
+    speech = [{"text": line["text"], "seconds": line["seconds"], "clauses": line["clauses"]} for line in voice["lines"]]
 
     # 配音后时长才确定，要按实际时长重新算一遍时间线并再查一次布局
     final = runner.run({"code": code, "mode": "prepare", "speech": speech}, directory, settings.PREPARE_TIMEOUT)
@@ -168,7 +173,8 @@ def _narrate_and_render(job_id, code, prepared, tracker):
             "mode": "render",
             "clips": settings.RENDER_CLIPS,
             "speech": speech,
-            "audio": [v["audio"] for v in voices],
+            "audio": [voice["audio"]],
+            "segments": [[line["from"], line["to"]] for line in voice["lines"]],
         },
         directory,
         settings.RENDER_TIMEOUT,
