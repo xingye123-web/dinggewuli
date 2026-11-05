@@ -1,0 +1,53 @@
+# API 收任务 -> Redis 排队 -> Worker 调用模型和配音、启动隔离容器渲染 -> 客户端取结果
+services:
+  redis:
+    image: redis:7-alpine
+    # 只当队列用，不落盘
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: service/Dockerfile
+    command: ["uvicorn", "service.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      ARTIFACTS_DIR: /data/artifacts
+      RENDER_API_TOKEN: ${RENDER_API_TOKEN:?请在 .env 里设置 RENDER_API_TOKEN}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    volumes:
+      - artifacts:/data/artifacts
+    ports:
+      - "8000:8000"
+    depends_on: [redis]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: service/Dockerfile
+    command: ["celery", "-A", "service.tasks", "worker", "--concurrency=1", "--loglevel=info"]
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      ARTIFACTS_DIR: /data/artifacts
+      RENDER_RUNNER: docker
+      RENDERER_IMAGE: physics-renderer:0.1
+      # 模型和配音的密钥只给 Worker，API 和渲染容器都拿不到
+      CHUANZHI_DEEPSEEK_API_KEY: ${CHUANZHI_DEEPSEEK_API_KEY:?请在 .env 里设置}
+      CHUANZHI_BREEZE_API_KEY: ${CHUANZHI_BREEZE_API_KEY:?请在 .env 里设置}
+    volumes:
+      - artifacts:/data/artifacts
+      # Worker 要启动渲染容器。能访问这个 socket 就等于控制宿主机，所以 Worker 绝不运行生成的代码，也不暴露端口
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on: [redis]
+    restart: unless-stopped
+
+  # 只负责构建镜像，不常驻。渲染容器由 Worker 按需启动
+  renderer-image:
+    image: physics-renderer:0.1
+    build: ./render
+    profiles: ["build"]
+
+volumes:
+  artifacts:

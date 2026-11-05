@@ -1,0 +1,10 @@
+.env
+.venv/
+.dev/
+__pycache__/
+media/
+spike/media/
+spike/parallel/
+samples/
+spike/player/*.mp4
+spike/timeline.json

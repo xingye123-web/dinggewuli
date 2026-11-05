@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>定格物理</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --surface: #141b23;
+    --line: #263240;
+    --ink: #e6ebf0;
+    --muted: #9aa8b6;
+    --rope: #e8c547;
+    --object: #5da9e9;
+    --accent: #ff7a59;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.6 "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  .note { color: var(--muted); font-size: 13px; }
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 16px;
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 16px 20px 32px;
+  }
+  .stage {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: #10151c;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  video { display: block; width: 100%; height: 100%; }
+  .hit {
+    position: absolute;
+    padding: 0;
+    background: transparent;
+    border: 1px dashed rgb(255 255 255 / 0.35);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .hit:hover, .hit:focus-visible { background: rgb(255 255 255 / 0.1); border-color: var(--ink); }
+  .hit.selected { background: rgb(255 122 89 / 0.16); border: 2px solid var(--accent); }
+  .stage:not(.paused) .hit, .stage:not(.paused) .callout { display: none; }
+  .callout {
+    position: absolute;
+    z-index: 2;
+    min-width: 150px;
+    padding: 8px 10px;
+    background: rgb(20 27 35 / 0.96);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    pointer-events: none;
+  }
+  .callout b { display: block; margin-bottom: 2px; color: var(--accent); font-weight: 600; }
+  .callout div { display: flex; justify-content: space-between; gap: 12px; }
+  .status {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    color: var(--muted);
+    background: #10151c;
+    text-align: center;
+    white-space: pre-line;
+  }
+  .status[hidden] { display: none; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+  button.tool, select {
+    height: 34px;
+    padding: 0 12px;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font: inherit;
+    cursor: pointer;
+  }
+  button.tool:hover, select:hover { border-color: var(--muted); }
+  #play { min-width: 72px; font-weight: 600; }
+  #clock { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .track { position: relative; margin-top: 10px; }
+  .phases { display: flex; gap: 2px; margin-bottom: 4px; }
+  .phase {
+    overflow: hidden;
+    color: var(--muted);
+    background: var(--surface);
+    border-radius: 3px;
+    font-size: 12px;
+    text-align: center;
+    white-space: nowrap;
+  }
+  input[type="range"] { display: block; width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .moments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+  .moments span { color: var(--muted); font-size: 13px; }
+  .chip {
+    padding: 2px 10px;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .chip:hover { border-color: var(--muted); }
+  .chip.active { color: #10151c; background: var(--rope); border-color: var(--rope); }
+  .problem { margin-top: 14px; padding: 12px 14px; background: var(--surface); border-radius: 8px; }
+  .problem small { display: block; color: var(--muted); }
+  aside { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  #steps { max-height: 340px; overflow-y: auto; }
+  section { padding: 12px 14px; background: var(--surface); border-radius: 8px; }
+  h2 { display: flex; align-items: center; justify-content: space-between; margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+  #clear { padding: 0 8px; color: var(--muted); background: none; border: 0; font: inherit; font-size: 13px; cursor: pointer; }
+  #clear:hover { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td { padding: 3px 0; border-top: 1px solid var(--line); }
+  tr:first-child td { border-top: 0; }
+  td.sym { width: 44px; font-weight: 600; }
+  td.name { color: var(--muted); font-size: 13px; }
+  td.val { text-align: right; white-space: nowrap; }
+  td.val em { color: var(--muted); font-size: 12px; font-style: normal; }
+  .formula { padding: 3px 0; font-variant-numeric: tabular-nums; font-size: 14px; }
+  .step {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    border-left: 3px solid transparent;
+    border-radius: 0 4px 4px 0;
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .step:hover { background: rgb(255 255 255 / 0.04); }
+  .step.active { background: rgb(232 197 71 / 0.1); border-left-color: var(--rope); }
+  .step b { display: block; font-weight: 600; }
+  .step b small { margin-left: 6px; color: var(--muted); font-size: 12px; font-weight: 400; }
+  @media (max-width: 960px) {
+    main { grid-template-columns: minmax(0, 1fr); padding: 12px 16px 24px; }
+    .callout { display: none; }
+    #clock { margin-left: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>定格物理</h1>
+  <select id="problem-select" aria-label="选择题目"></select>
+  <span class="note">技术原型：解题和场景代码由 DeepSeek 生成，配音由 Breeze Blue 合成</span>
+</header>
+<main>
+  <div>
+    <div class="stage" id="stage">
+      <video id="video" preload="auto" playsinline></video>
+      <div class="callout" id="callout" hidden></div>
+      <div class="status" id="status" hidden></div>
+    </div>
+    <div class="track">
+      <div class="phases" id="phases"></div>
+      <input type="range" id="seek" min="0" value="0" aria-label="动画进度">
+    </div>
+    <div class="controls">
+      <button class="tool" id="play">播放</button>
+      <button class="tool" id="prev" aria-label="上一帧">上一帧</button>
+      <button class="tool" id="next" aria-label="下一帧">下一帧</button>
+      <select id="rate" aria-label="播放速度">
+        <option value="0.5">0.5 倍速</option>
+        <option value="1" selected>1 倍速</option>
+        <option value="2">2 倍速</option>
+      </select>
+      <span id="clock"></span>
+    </div>
+    <div class="moments" id="moments"><span>关键时刻</span></div>
+    <p class="note">暂停后，点画面里虚线框住的物体，可以只看它的物理量。空格键播放或暂停，左右方向键逐帧移动。</p>
+    <div class="problem">
+      <div id="problem"></div>
+      <small id="assumptions"></small>
+    </div>
+  </div>
+  <aside>
+    <section>
+      <h2><span id="panel-title">此刻的物理量</span><button id="clear" hidden>显示全部</button></h2>
+      <table><tbody id="quantities"></tbody></table>
+    </section>
+    <section>
+      <h2>代入计算</h2>
+      <div id="formulas"></div>
+    </section>
+    <section>
+      <h2>讲解</h2>
+      <div id="steps"></div>
+    </section>
+  </aside>
+</main>
+<script type="module">
+const $ = (id) => document.getElementById(id)
+const params = new URLSearchParams(location.search)
+const API = params.get('api') || 'http://127.0.0.1:8000'
+const POLL_MS = 1000
+const demos = await (await fetch('/player/demo-jobs.json')).json()
+const jobId = params.get('job') || demos[0].id
+const jobUrl = `${API}/v1/renders/${jobId}`
+
+for (const demo of demos) {
+  const option = new Option(demo.title, demo.id, false, demo.id === jobId)
+  $('problem-select').append(option)
+}
+$('problem-select').addEventListener('change', (event) => {
+  location.search = `?job=${event.target.value}`
+})
+
+function showStatus(message) {
+  $('status').hidden = !message
+  $('status').textContent = message || ''
+}
+
+const STAGE_NAMES = {
+  queued: '排队中',
+  reading: '正在读题',
+  solving: '正在解题',
+  authoring: '正在写动画代码',
+  checking: '正在检查代码和答案',
+  narrating: '正在配音',
+  rendering: '正在渲染动画',
+  encoding: '正在合成视频',
+}
+
+async function waitFor(ready, keepMessage) {
+  for (;;) {
+    const status = await (await fetch(jobUrl)).json()
+    if (status.status === 'failed' || ready(status)) return status
+    if (!keepMessage) showStatus(STAGE_NAMES[status.status] || status.status)
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+  }
+}
+
+const first = await waitFor((status) => status.timeline_ready)
+if (first.status === 'failed') {
+  showStatus(`生成失败（${first.stage}）\n${(first.errors || []).join('\n')}`)
+  throw new Error('任务失败')
+}
+
+// 时间线一到就显示数据和讲解，视频渲染好再接上
+const tl = await (await fetch(`${jobUrl}/timeline.json`)).json()
+const video = $('video')
+const stage = $('stage')
+const seek = $('seek')
+const last = Math.round(tl.duration * tl.fps) - 1
+const SNAP_FRAMES = 5
+const quantityById = Object.fromEntries(tl.quantities.map((q) => [q.id, q]))
+
+let frame = 0
+let selected = null
+let activeStep = null
+const stepButtons = []
+
+seek.max = last
+$('problem').textContent = tl.text
+$('assumptions').textContent = `条件：${tl.assumptions.join('、')}`
+
+const frameOf = (time) => Math.min(Math.max(Math.floor(time * tl.fps + 1e-4), 0), last)
+
+function format(id, index) {
+  const value = tl.frames[id][index]
+  if (value === null) return '—'
+  return value.toFixed(quantityById[id].digits)
+}
+
+const unitOf = (id, index) => (tl.frames[id][index] === null ? '' : quantityById[id].unit)
+
+function fillFormula(expr, index) {
+  return expr.replace(/\{(\w+)\}/g, (_, id) =>
+    id in tl.constants ? tl.constants[id] : format(id, index))
+}
+
+function render(index) {
+  frame = index
+  seek.value = index
+  const shown = selected ? tl.objects[selected].quantities : tl.quantities.map((q) => q.id)
+  $('quantities').innerHTML = shown.map((id) => {
+    const q = quantityById[id]
+    return `<tr data-id="${id}"><td class="sym">${q.symbol}</td><td class="name">${q.name}</td>` +
+      `<td class="val">${format(id, index)} <em>${unitOf(id, index)}</em></td></tr>`
+  }).join('')
+  $('formulas').innerHTML = tl.formulas.map((f) =>
+    `<div class="formula">${fillFormula(f.expr, index)}</div>`).join('')
+  $('clock').textContent = `${tl.clock.label} ${format(tl.clock.id, index)} ${tl.clock.unit} · 第 ${index} 帧`
+  for (const [id, button] of hits) {
+    const [x, y, w, h] = tl.regions[id][index]
+    Object.assign(button.style, { left: `${x}%`, top: `${y}%`, width: `${w}%`, height: `${h}%` })
+    button.classList.toggle('selected', id === selected)
+  }
+  renderCallout(index)
+  document.querySelectorAll('[data-event]').forEach((chip) => {
+    chip.classList.toggle('active', Math.round(Number(chip.dataset.event) * tl.fps) === index)
+  })
+  highlightStep(index)
+}
+
+// 讲解随播放高亮，自动滚到当前这一句
+function highlightStep(index) {
+  const time = index / tl.fps
+  let current = null
+  for (const button of stepButtons) {
+    if (Number(button.dataset.t) <= time + 1e-3) current = button
+  }
+  if (current === activeStep) return
+  activeStep?.classList.remove('active')
+  activeStep = current
+  if (current) {
+    current.classList.add('active')
+    if (!video.paused) current.scrollIntoView({ block: 'nearest' })
+  }
+}
+
+function renderCallout(index) {
+  const box = $('callout')
+  box.hidden = !selected
+  $('clear').hidden = !selected
+  $('panel-title').textContent = selected ? `${tl.objects[selected].name}的物理量` : '此刻的物理量'
+  if (!selected) return
+  const [x, y, w] = tl.regions[selected][index]
+  box.style.left = `${Math.min(x + w + 1, 78)}%`
+  box.style.top = `${Math.min(Math.max(y, 2), 62)}%`
+  box.innerHTML = `<b>${tl.objects[selected].name}</b>` + tl.objects[selected].quantities.map((id) => {
+    const q = quantityById[id]
+    return `<div><span>${q.symbol}</span><span>${format(id, index)} ${unitOf(id, index)}</span></div>`
+  }).join('')
+}
+
+// 停在帧的中间，避免落在两帧的边界上
+function seekFrame(index) {
+  video.pause()
+  video.currentTime = (index + 0.5) / tl.fps
+  render(index)
+}
+
+function setPaused(paused) {
+  stage.classList.toggle('paused', paused)
+  $('play').textContent = paused ? '播放' : '暂停'
+}
+
+function togglePlay() {
+  if (!video.src) return
+  if (video.paused) {
+    if (frame >= last) video.currentTime = 0
+    video.play()
+  } else {
+    video.pause()
+  }
+}
+
+const hits = new Map()
+// 大的先放，小的盖在上面，水里的物块才点得到
+const areaOf = (id) => tl.regions[id][0][2] * tl.regions[id][0][3]
+const byArea = Object.entries(tl.objects).sort(([a], [b]) => areaOf(b) - areaOf(a))
+for (const [id, object] of byArea) {
+  const button = document.createElement('button')
+  button.className = 'hit'
+  button.setAttribute('aria-label', `查看${object.name}的物理量`)
+  button.addEventListener('click', (event) => {
+    event.stopPropagation()
+    selected = selected === id ? null : id
+    render(frame)
+  })
+  stage.append(button)
+  hits.set(id, button)
+}
+
+const total = tl.duration
+for (const phase of tl.phases) {
+  const div = document.createElement('div')
+  div.className = 'phase'
+  div.style.flex = `${phase.t1 - phase.t0} 0 0`
+  div.textContent = phase.label
+  $('phases').append(div)
+}
+for (const event of tl.events) {
+  const chip = document.createElement('button')
+  chip.className = 'chip'
+  chip.dataset.event = event.t
+  chip.textContent = event.label
+  chip.addEventListener('click', () => seekFrame(Math.round(event.t * tl.fps)))
+  $('moments').append(chip)
+}
+tl.steps.forEach((step) => {
+  const button = document.createElement('button')
+  button.className = 'step'
+  button.dataset.t = step.t
+  button.innerHTML = `<b>${step.title}<small>${step.t.toFixed(0)} 秒</small></b>${step.text}`
+  button.addEventListener('click', () => seekFrame(Math.min(Math.round(step.t * tl.fps), last)))
+  $('steps').append(button)
+  stepButtons.push(button)
+})
+
+stage.addEventListener('click', () => {
+  if (selected) {
+    selected = null
+    render(frame)
+    return
+  }
+  togglePlay()
+})
+$('clear').addEventListener('click', () => {
+  selected = null
+  render(frame)
+})
+$('play').addEventListener('click', togglePlay)
+$('prev').addEventListener('click', () => seekFrame(Math.max(frame - 1, 0)))
+$('next').addEventListener('click', () => seekFrame(Math.min(frame + 1, last)))
+$('rate').addEventListener('change', (event) => { video.playbackRate = Number(event.target.value) })
+seek.addEventListener('input', () => seekFrame(Number(seek.value)))
+// 松手时靠近关键时刻就吸过去，面板显示的正好是题目的整数值
+seek.addEventListener('change', () => {
+  const nearest = tl.events
+    .map((event) => Math.round(event.t * tl.fps))
+    .find((index) => Math.abs(index - Number(seek.value)) <= SNAP_FRAMES)
+  if (nearest !== undefined) seekFrame(nearest)
+})
+document.addEventListener('keydown', (event) => {
+  if (event.target.tagName === 'SELECT') return
+  if (event.code === 'Space') {
+    event.preventDefault()
+    togglePlay()
+  } else if (event.code === 'ArrowLeft' && event.target !== seek) {
+    seekFrame(Math.max(frame - 1, 0))
+  } else if (event.code === 'ArrowRight' && event.target !== seek) {
+    seekFrame(Math.min(frame + 1, last))
+  }
+})
+
+video.addEventListener('play', () => { setPaused(false); follow() })
+video.addEventListener('pause', () => setPaused(true))
+video.addEventListener('ended', () => setPaused(true))
+video.addEventListener('seeked', () => render(frameOf(video.currentTime)))
+
+// 播放时按视频实际呈现的帧更新面板，不用 timeupdate，它一秒只触发几次
+function follow() {
+  video.requestVideoFrameCallback((_, meta) => {
+    render(frameOf(meta.mediaTime))
+    if (!video.paused) follow()
+  })
+}
+
+setPaused(true)
+render(0)
+
+const firstCheck = await (await fetch(jobUrl)).json()
+if (!firstCheck.video_ready) showStatus('动画渲染中，右侧的数据和讲解已经可以看了')
+const finished = await waitFor((status) => status.video_ready, true)
+if (finished.status === 'failed') {
+  showStatus(`动画生成失败（${finished.stage}）\n${(finished.errors || []).join('\n')}`)
+} else {
+  video.src = `${jobUrl}/video.mp4`
+  showStatus('')
+}
+</script>
+</body>
+</html>
