@@ -61,6 +61,12 @@ class ConfirmRequest(BaseModel):
 
 class RenderRequest(BaseModel):
     code: str = Field(max_length=MAX_BYTES)
+    # 预置例题时一起交题目原文和写好的文字解析，讲解页和普通题目显示得一样
+    problem_text: str = Field(default="", max_length=3000)
+    solution: dict | None = None
+
+
+MAX_SOLUTION_CHARS = 20000
 
 
 def _public(status):
@@ -159,8 +165,20 @@ def submit_code(request: RenderRequest, response: Response):
     if problems:
         return JSONResponse(status_code=422, content={"stage": "check", "errors": problems})
 
+    files = {"scene.py": request.code}
+    if request.solution is not None:
+        solution = json.dumps(request.solution, ensure_ascii=False, indent=1)
+        if len(solution) > MAX_SOLUTION_CHARS:
+            raise HTTPException(status_code=422, detail="文字解析太长")
+        files["solution.json"] = solution
+
     job_id = store.job_id_for(PIPELINE_VERSION, request.code)
-    if not store.create(job_id, {"scene.py": request.code}):
+    if store.create(job_id, files):
+        if request.problem_text.strip() or request.solution is not None:
+            store.update_status(
+                job_id, problem_text=request.problem_text.strip(), solution_ready=request.solution is not None
+            )
+    else:
         response.status_code = 200
     return _public(store.read_status(job_id))
 

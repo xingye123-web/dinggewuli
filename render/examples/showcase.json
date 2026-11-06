@@ -1,0 +1,108 @@
+{
+  "说明": "首页例题。代码就是同目录的示例，解析由 Claude 按示例里的数值写好，数值要和视频算出的答案一致。用 scripts/publish_examples.py 提交到线上。",
+  "examples": [
+    {
+      "file": "pulley_n3.py",
+      "solution": {
+        "topic": "滑轮组、机械效率",
+        "knowns": [
+          {"name": "物重", "symbol": "G", "value": 240, "unit": "N"},
+          {"name": "上升高度", "symbol": "h", "value": 2, "unit": "m"},
+          {"name": "时间", "symbol": "t", "value": 10, "unit": "s"},
+          {"name": "拉力", "symbol": "F", "value": 100, "unit": "N"},
+          {"name": "绳子段数", "symbol": "n", "value": 3, "unit": ""}
+        ],
+        "steps": [
+          {"title": "求绳端移动的距离", "explain": "动滑轮上有 3 段绳子，绳端移动的距离是物体上升高度的 3 倍。", "formula": "s = nh = 3 × 2 m = 6 m"},
+          {"title": "求有用功", "explain": "有用功是克服物重做的功。", "formula": "W<sub>有</sub> = Gh = 240 N × 2 m = 480 J"},
+          {"title": "求拉力的功率", "explain": "先求拉力做的总功，再除以时间。", "formula": "W<sub>总</sub> = Fs = 100 N × 6 m = 600 J，P = W<sub>总</sub> / t = 600 J ÷ 10 s = 60 W"},
+          {"title": "求机械效率", "explain": "", "formula": "η = W<sub>有</sub> / W<sub>总</sub> = 480 J ÷ 600 J = 80%"},
+          {"title": "求动滑轮的重力", "explain": "不计绳重和摩擦，3 段绳子的拉力之和等于物重加动滑轮重。", "formula": "G<sub>动</sub> = nF − G = 3 × 100 N − 240 N = 60 N"}
+        ],
+        "answers": [
+          {"label": "有用功", "value": 480, "unit": "J"},
+          {"label": "拉力的功率", "value": 60, "unit": "W"},
+          {"label": "机械效率", "value": 80, "unit": "%"},
+          {"label": "动滑轮的重力", "value": 60, "unit": "N"}
+        ],
+        "pitfall": "求总功时距离要用绳端移动的 6 m，不能用物体上升的 2 m。"
+      }
+    },
+    {
+      "file": "buoyancy.py",
+      "solution": {
+        "topic": "浮力、液体压强、密度",
+        "knowns": [
+          {"name": "圆柱体重", "symbol": "G", "value": 12, "unit": "N"},
+          {"name": "底面积", "symbol": "S", "value": 40, "unit": "cm²"},
+          {"name": "高", "symbol": "h", "value": 20, "unit": "cm"},
+          {"name": "水的密度", "symbol": "ρ<sub>水</sub>", "value": 1000, "unit": "kg/m³"},
+          {"name": "", "symbol": "g", "value": 10, "unit": "N/kg"}
+        ],
+        "steps": [
+          {"title": "统一单位，求圆柱体的体积", "explain": "代入公式前先把 cm² 和 cm 换成 m² 和 m。", "formula": "V = Sh = 4×10<sup>-3</sup> m² × 0.2 m = 8×10<sup>-4</sup> m³"},
+          {"title": "求最大浮力", "explain": "完全浸没时排开水的体积最大，等于圆柱体的体积。", "formula": "F<sub>浮</sub> = ρ<sub>水</sub>gV = 1000 kg/m³ × 10 N/kg × 8×10<sup>-4</sup> m³ = 8 N"},
+          {"title": "求完全浸没时测力计的示数", "explain": "测力计的拉力加浮力等于重力。", "formula": "F = G − F<sub>浮</sub> = 12 N − 8 N = 4 N"},
+          {"title": "求圆柱体的密度", "explain": "先由重力求质量，再除以体积。", "formula": "m = G / g = 1.2 kg，ρ = m / V = 1.2 kg ÷ 8×10<sup>-4</sup> m³ = 1500 kg/m³"},
+          {"title": "求刚好浸没时下表面受到的压强", "explain": "刚好浸没时，下表面在水下的深度等于圆柱体的高。", "formula": "p = ρ<sub>水</sub>gh = 1000 kg/m³ × 10 N/kg × 0.2 m = 2000 Pa"}
+        ],
+        "answers": [
+          {"label": "最大浮力", "value": 8, "unit": "N"},
+          {"label": "完全浸没时测力计的示数", "value": 4, "unit": "N"},
+          {"label": "圆柱体的密度", "value": 1500, "unit": "kg/m³"},
+          {"label": "刚好完全浸没时下表面受到水的压强", "value": 2000, "unit": "Pa"}
+        ],
+        "pitfall": "完全浸没后再往下放，排开水的体积不变，浮力和测力计示数都不再变化，变的只有下表面的压强。"
+      }
+    },
+    {
+      "file": "incline.py",
+      "solution": {
+        "topic": "斜面、机械效率",
+        "knowns": [
+          {"name": "物重", "symbol": "G", "value": 500, "unit": "N"},
+          {"name": "拉力", "symbol": "F", "value": 250, "unit": "N"},
+          {"name": "斜面长", "symbol": "s", "value": 5, "unit": "m"},
+          {"name": "斜面高", "symbol": "h", "value": 2, "unit": "m"},
+          {"name": "时间", "symbol": "t", "value": 10, "unit": "s"}
+        ],
+        "steps": [
+          {"title": "求有用功", "explain": "有用功是把物体举高做的功。", "formula": "W<sub>有</sub> = Gh = 500 N × 2 m = 1000 J"},
+          {"title": "求拉力的功率", "explain": "拉力沿斜面移动了整个斜面长。", "formula": "W<sub>总</sub> = Fs = 250 N × 5 m = 1250 J，P = W<sub>总</sub> / t = 1250 J ÷ 10 s = 125 W"},
+          {"title": "求斜面的机械效率", "explain": "", "formula": "η = W<sub>有</sub> / W<sub>总</sub> = 1000 J ÷ 1250 J = 80%"},
+          {"title": "求摩擦力", "explain": "额外功是克服摩擦做的功，除以斜面长就是摩擦力。", "formula": "f = W<sub>额</sub> / s = (1250 J − 1000 J) ÷ 5 m = 50 N"}
+        ],
+        "answers": [
+          {"label": "有用功", "value": 1000, "unit": "J"},
+          {"label": "拉力的功率", "value": 125, "unit": "W"},
+          {"label": "斜面的机械效率", "value": 80, "unit": "%"},
+          {"label": "物体受到的摩擦力", "value": 50, "unit": "N"}
+        ],
+        "pitfall": "摩擦力不等于拉力。拉力既要克服摩擦，又要把物体往高处拉，所以要用额外功除以斜面长来求。"
+      }
+    },
+    {
+      "file": "lever.py",
+      "solution": {
+        "topic": "杠杆平衡、功",
+        "knowns": [
+          {"name": "物重", "symbol": "G", "value": 30, "unit": "N"},
+          {"name": "OA", "symbol": "", "value": 0.2, "unit": "m"},
+          {"name": "OB", "symbol": "", "value": 0.6, "unit": "m"},
+          {"name": "物体上升高度", "symbol": "h", "value": 0.1, "unit": "m"}
+        ],
+        "steps": [
+          {"title": "求所需的动力", "explain": "两个力都竖直，力臂就是到支点的水平距离。由杠杆平衡条件求动力。", "formula": "F<sub>1</sub> = G × OA / OB = 30 N × 0.2 m ÷ 0.6 m = 10 N"},
+          {"title": "求 B 端下降的距离", "explain": "A、B 两端绕同一个支点转过相同的角度，移动距离和到支点的距离成正比。", "formula": "s = h × OB / OA = 0.1 m × 0.6 m ÷ 0.2 m = 0.3 m"},
+          {"title": "求动力做的功", "explain": "动力做的功等于克服物重做的功，杠杆省力但费距离，不省功。", "formula": "W = F<sub>1</sub>s = 10 N × 0.3 m = 3 J"}
+        ],
+        "answers": [
+          {"label": "所需的动力", "value": 10, "unit": "N"},
+          {"label": "B 端下降的距离", "value": 0.3, "unit": "m"},
+          {"label": "动力做的功", "value": 3, "unit": "J"}
+        ],
+        "pitfall": "杠杆转动后两个力臂都变短，但比值始终是 1 比 3，所以动力一直是 10 N，不会随转动变化。"
+      }
+    }
+  ]
+}

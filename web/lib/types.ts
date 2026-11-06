@@ -13,6 +13,10 @@ export interface JobStatus {
   timeline_ready?: boolean;
   video_ready?: boolean;
   total_seconds?: number;
+  /** 已经完成的每一步用了多少秒，键是 status 的名字。 */
+  stage_seconds?: Record<string, number>;
+  /** 渲染时的进度，比如 { stage: "rendering", done: 2, total: 4 }。 */
+  progress?: { stage?: string; done?: number; total?: number } | null;
 }
 
 /** 模型独立解题的结果。内容来自模型，字段都可能缺失。 */

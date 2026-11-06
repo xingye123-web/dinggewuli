@@ -2,6 +2,7 @@
 
 import { type FormEvent, useState } from "react";
 import { confirmProblem, imageUrl } from "@/lib/api";
+import { ArrowIcon } from "./Icons";
 
 interface Props {
   id: string;
@@ -33,23 +34,28 @@ export default function ConfirmForm({ id, initialText, initialFigure }: Props) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="card">
+    <form onSubmit={onSubmit} className="card confirm">
       <h2>请核对读到的题目</h2>
       <p>图片可能读错，特别是题图里的绳子段数、拉力方向和电路连接。请对照原图，有错就直接改。</p>
-      {/* eslint-disable-next-line @next/next/no-img-element -- 用户上传的原图，不经过图片优化 */}
-      <img className="source-image" src={imageUrl(id)} alt="上传的题目图片" />
-      <label htmlFor="confirm-text">题目文字</label>
-      <textarea id="confirm-text" rows={5} value={text} onChange={(event) => setText(event.target.value)} />
-      <label htmlFor="confirm-figure">题图信息</label>
-      <textarea id="confirm-figure" rows={4} value={figure} onChange={(event) => setFigure(event.target.value)} />
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      <button type="submit" className="primary" disabled={submitting}>
-        {submitting ? "提交中…" : "确认无误，开始生成"}
-      </button>
+      <div className="confirm-grid">
+        {/* eslint-disable-next-line @next/next/no-img-element -- 用户上传的原图，不经过图片优化 */}
+        <img src={imageUrl(id)} alt="上传的题目图片" />
+        <div>
+          <label htmlFor="confirm-text">题目文字</label>
+          <textarea id="confirm-text" rows={7} value={text} onChange={(event) => setText(event.target.value)} />
+          <label htmlFor="confirm-figure">题图信息</label>
+          <textarea id="confirm-figure" rows={5} value={figure} onChange={(event) => setFigure(event.target.value)} />
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? "提交中…" : "确认无误，开始生成"}
+            {!submitting && <ArrowIcon />}
+          </button>
+        </div>
+      </div>
     </form>
   );
 }

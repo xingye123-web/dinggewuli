@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 import { fetchSolution, fetchStatus, fetchTimeline, fetchWorkerOnline, videoUrl } from "@/lib/api";
 import type { JobStatus, Solution, Timeline } from "@/lib/types";
 import ConfirmForm from "./ConfirmForm";
+import Progress from "./Progress";
 import SolutionPanel from "./SolutionPanel";
+import TopBar from "./TopBar";
 import VideoPlayer from "./VideoPlayer";
 
 const POLL_MS = 2000;
@@ -28,7 +30,6 @@ const FAILURE_REASONS: Record<string, string> = {
   unsupported: "现有的动画零件还画不出这道题。",
   solving: "这道题没有解出答案，可能是条件不全或超出初中范围。",
   reading: "没有从图片里读出题目，请换一张清晰的照片。",
-  queue: "任务队列没有启动。",
   model: "调用解题模型失败，请稍后再试。",
   narration: "配音失败，请稍后再试。",
 };
@@ -38,15 +39,19 @@ function editableText(status: JobStatus) {
   return status.figure ? `${text}\n题图信息：${status.figure}` : text;
 }
 
-function stageText(status: JobStatus) {
-  const name = STAGE_NAMES[status.status] ?? status.status;
-  if (status.status === "narrating" && status.narration_total) {
-    return `${name}（${status.narration_done ?? 0} / ${status.narration_total}）`;
+function duration(seconds: number) {
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+/** 视频还没出来时，画面位置显示的进度。 */
+function pendingText(status: JobStatus | null) {
+  if (!status) return undefined;
+  if (status.status === "failed") return "视频没有生成成功";
+  if (status.status === "rendering" && status.progress?.total) {
+    return `正在渲染视频，${status.progress.done ?? 0} / ${status.progress.total} 段`;
   }
-  if (status.status === "authoring" && status.attempt && status.attempt > 1) {
-    return `${name}（第 ${status.attempt} 次）`;
-  }
-  return name;
+  return STAGE_NAMES[status.status] ?? "视频生成中";
 }
 
 export default function JobView({ id }: { id: string }) {
@@ -99,61 +104,70 @@ export default function JobView({ id }: { id: string }) {
   const failed = status?.status === "failed";
   const finished = status?.status === "done";
   const awaiting = status?.status === "awaiting_confirmation";
+  const solutionCard = solution ? <SolutionPanel solution={solution} /> : null;
+  const stateClass = finished ? "state done" : failed ? "state failed" : "state busy";
 
   return (
-    <main>
-      <p>
-        <Link href="/">← 再问一道题</Link>
-      </p>
-      <h1>定格物理</h1>
+    <>
+      <TopBar page="job" />
+      <main className="wrap">
+        {!status && !lostConnection && <p className="hint">正在读取任务…</p>}
+        {lostConnection && (
+          <p className="error" role="alert">
+            连接不上服务器，正在重试。
+          </p>
+        )}
 
-      {!finished && (
-        <p className={failed ? "error" : "status"} role="status">
-          {status ? stageText(status) : "正在读取任务…"}
-        </p>
-      )}
-      {status?.status === "queued" && !workerOnline && (
-        <p className="note">生成服务暂时离线，它上线后会自动开始这道题。</p>
-      )}
-      {lostConnection && (
-        <p className="error" role="alert">
-          连接不上渲染服务，正在重试。
-        </p>
-      )}
-      {failed && status && (
-        <div className="card">
-          <p>{FAILURE_REASONS[status.stage ?? ""] ?? "动画没有生成成功，可以回到首页重新提交这道题。"}</p>
-          <details>
-            <summary>查看技术细节</summary>
-            <pre>{JSON.stringify(status.errors, null, 1)}</pre>
-          </details>
-        </div>
-      )}
+        {awaiting && status ? (
+          <ConfirmForm id={id} initialText={status.problem_text ?? ""} initialFigure={status.figure ?? ""} />
+        ) : (
+          status?.problem_text && (
+            <section className="card problem">
+              <div className="problem-head">
+                {solution?.topic && <span className="chip">{solution.topic}</span>}
+                <span className={stateClass} role="status">
+                  {STAGE_NAMES[status.status] ?? status.status}
+                </span>
+                {finished && status.total_seconds !== undefined && (
+                  <span className="muted mono">用时 {duration(status.total_seconds)}</span>
+                )}
+                {(finished || failed) && (
+                  <Link href={`/?text=${encodeURIComponent(editableText(status))}`}>题目读错了？修改后重新生成</Link>
+                )}
+              </div>
+              <p className="problem-text">{status.problem_text}</p>
+              {status.figure && <p className="problem-figure">题图信息：{status.figure}</p>}
+            </section>
+          )
+        )}
 
-      {awaiting && status ? (
-        <ConfirmForm id={id} initialText={status.problem_text ?? ""} initialFigure={status.figure ?? ""} />
-      ) : (
-        status?.problem_text && (
-          <section className="card">
-            <h2>题目</h2>
-            <p>{status.problem_text}</p>
-            {status.figure && <p className="note">题图信息：{status.figure}</p>}
-            {(finished || failed) && (
-              <p>
-                <Link href={`/?text=${encodeURIComponent(editableText(status))}`}>题目读错了？修改后重新生成</Link>
-              </p>
-            )}
+        {failed && status && (
+          <section className="card notice">
+            <h2>没有生成成功</h2>
+            <p>{FAILURE_REASONS[status.stage ?? ""] ?? "动画没有生成成功，可以回到首页重新提交这道题。"}</p>
+            <details>
+              <summary>查看技术细节</summary>
+              <pre>{JSON.stringify(status.errors, null, 1)}</pre>
+            </details>
           </section>
-        )
-      )}
+        )}
 
-      {timeline ? (
-        <VideoPlayer timeline={timeline} videoSrc={status?.video_ready ? videoUrl(id) : null} />
-      ) : (
-        !failed && !awaiting && <div className="stage waiting">视频生成中</div>
-      )}
-
-      {solution && <SolutionPanel solution={solution} />}
-    </main>
+        {timeline ? (
+          <VideoPlayer
+            timeline={timeline}
+            videoSrc={status?.video_ready ? videoUrl(id) : null}
+            pending={pendingText(status)}
+            solution={solutionCard}
+          />
+        ) : (
+          <>
+            {status && !failed && !awaiting && (
+              <Progress status={status} solutionReady={solutionReady} workerOnline={workerOnline} />
+            )}
+            {solutionCard && <section className="below single">{solutionCard}</section>}
+          </>
+        )}
+      </main>
+    </>
   );
 }

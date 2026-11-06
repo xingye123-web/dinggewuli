@@ -20,6 +20,12 @@ DeepSeek 碰到零件库没有的东西时，会先用基础零件拼，并在�
 7. 把做完的零件的关键词加进 `.dev/requests/已处理.json`（JSON 数组，比如 "杠杆"），名字里含这个词的需求就不再列。
 8. 候选示例要审核后再手动放进示例库，不要原样照搬，也不要自动加。
 
+## 界面
+
+- 界面风格是用户 2026-11-06 选定的设计 A「取景框」：纸面加和视频同色的深色台面，取景框四角是贯穿全站的图形。设计稿在 `.dev/design/a`，样式都在 `web/app/globals.css`。
+- 标题用的宋体是从 Noto Serif SC 裁出来的小字体（`web/public/fonts`）。改了用宋体的标题，把新字加进 `web/fonts/serif-text.txt`，再运行 `python scripts/build_fonts.py`（用装了 fontTools 的 Python，比如 `D:\python\python.exe`）。
+- 首页例题：代码是 `render/examples` 里的示例，解析写在 `render/examples/showcase.json`。`python scripts/publish_examples.py` 提交到线上，把打印的任务号填进 `web/lib/examples.ts` 再部署。示例代码改了，任务号也会变，要重新提交。
+
 ## 约定
 
 - API 密钥只在 Windows 用户环境变量 `CHUANZHI_DEEPSEEK_API_KEY`、`CHUANZHI_BREEZE_API_KEY` 里，专用于本项目，不能写进任何文件。

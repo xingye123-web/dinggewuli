@@ -1,31 +1,57 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatNumber } from "@/lib/format";
-import type { Timeline } from "@/lib/types";
+import type { Quantity, Timeline } from "@/lib/types";
+import { DownloadIcon, NextFrameIcon, PauseIcon, PlayIcon, PrevFrameIcon } from "./Icons";
 import Markup from "./Markup";
 
 const SNAP_FRAMES = 5; // 松手时离关键时刻这么近，就吸过去，读数正好是题目的值
-const SLOT = /\{(\w+)\}/g;
+const SLOT = /\{(\w+)\}/;
 const STEP_BOUNDARY = 1e-3;
 
 interface Props {
   timeline: Timeline;
   /** 视频还没生成时为 null，此时面板和讲解仍然可用。 */
   videoSrc: string | null;
+  /** 视频没出来时画面位置显示的进度，比如「正在渲染视频 2 / 4 段」。 */
+  pending?: string;
+  /** 放在讲解原文右边的内容，也就是文字解析。 */
+  solution?: ReactNode;
 }
 
-export default function VideoPlayer({ timeline, videoSrc }: Props) {
+function clockText(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${(seconds - minutes * 60).toFixed(1).padStart(4, "0")}`;
+}
+
+function isTyping(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
+  return target instanceof HTMLInputElement && target.type !== "range";
+}
+
+export default function VideoPlayer({ timeline, videoSrc, pending, solution }: Props) {
   const video = useRef<HTMLVideoElement>(null);
   const [frame, setFrame] = useState(0);
   const [paused, setPaused] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
-  const lastFrame = Math.round(timeline.duration * timeline.fps) - 1;
+  const [tab, setTab] = useState<"values" | "formulas">("values");
+  const lastFrame = Math.max(Math.round(timeline.duration * timeline.fps) - 1, 0);
 
   const quantityById = useMemo(
     () => new Map(timeline.quantities.map((quantity) => [quantity.id, quantity])),
     [timeline],
   );
+
+  // 代入计算里只有会随画面变化的量标黄，F = 100 N 这种不变的量不标
+  const changing = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [id, values] of Object.entries(timeline.frames)) {
+      if (values.some((value) => value !== values[0])) ids.add(id);
+    }
+    return ids;
+  }, [timeline]);
 
   // 大的先放，小的盖在上面，水里的物块才点得到
   const clickable = useMemo(() => {
@@ -76,7 +102,7 @@ export default function VideoPlayer({ timeline, videoSrc }: Props) {
     return () => element.cancelVideoFrameCallback(handle);
   }, [paused, frameOf]);
 
-  function togglePlay() {
+  const togglePlay = useCallback(() => {
     const element = video.current;
     if (!element || !element.src) return;
     if (element.paused) {
@@ -85,7 +111,25 @@ export default function VideoPlayer({ timeline, videoSrc }: Props) {
     } else {
       element.pause();
     }
-  }
+  }, [frame, lastFrame]);
+
+  // 空格播放或暂停，左右方向键逐帧。正在输入文字、或焦点在按钮上按空格时交给浏览器处理
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target)) return;
+      const onControl = event.target instanceof HTMLButtonElement || event.target instanceof HTMLAnchorElement;
+      const onSlider = event.target instanceof HTMLInputElement;
+      if (event.key === " " && !onControl && !onSlider) {
+        event.preventDefault();
+        togglePlay();
+      } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !onSlider) {
+        event.preventDefault();
+        seekFrame(frame + (event.key === "ArrowLeft" ? -1 : 1));
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [frame, togglePlay, seekFrame]);
 
   function onStageClick() {
     if (selected) setSelected(null);
@@ -104,159 +148,266 @@ export default function VideoPlayer({ timeline, videoSrc }: Props) {
   timeline.steps.forEach((step, index) => {
     if (step.t <= seconds + STEP_BOUNDARY) activeStep = index;
   });
-  const shownIds = selected
-    ? timeline.objects[selected].quantities
-    : timeline.quantities.map((quantity) => quantity.id);
+  const showPaused = paused && !!videoSrc;
+  const clockQuantity = quantityById.get(timeline.clock.id);
+  const allIds = timeline.quantities.map((quantity) => quantity.id);
+  const selectedIds = selected ? timeline.objects[selected].quantities.filter((id) => quantityById.has(id)) : [];
+  const otherIds = allIds.filter((id) => !selectedIds.includes(id));
+
+  function row(quantity: Quantity | undefined, highlight: boolean) {
+    if (!quantity) return null;
+    const value = format(quantity.id, frame);
+    return (
+      <div className={highlight ? "q sel" : "q"} key={quantity.id}>
+        <span className="sym">
+          <Markup text={quantity.symbol} />
+        </span>
+        <span className="name">{quantity.name}</span>
+        <span className="val">
+          <Markup text={value} />
+          {value !== "—" && <small>{quantity.unit}</small>}
+        </span>
+      </div>
+    );
+  }
 
   return (
-    <div className="player">
-      <div>
-        <div className="stage" onClick={onStageClick}>
-          {videoSrc ? (
-            <video
-              ref={video}
-              src={videoSrc}
-              preload="auto"
-              playsInline
-              onPlay={() => setPaused(false)}
-              onPause={() => setPaused(true)}
-              onEnded={() => setPaused(true)}
-              onSeeked={(event) => setFrame(frameOf(event.currentTarget.currentTime))}
-            />
-          ) : (
-            <div className="waiting">视频生成中，右边的物理量和讲解已经可以看了</div>
-          )}
-          {paused &&
-            videoSrc &&
-            clickable.map((id) => {
-              const [x, y, width, height] = timeline.regions[id][frame];
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  className={id === selected ? "hit selected" : "hit"}
-                  aria-label={`查看${timeline.objects[id].name}的物理量`}
-                  style={{ left: `${x}%`, top: `${y}%`, width: `${width}%`, height: `${height}%` }}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setSelected(id === selected ? null : id);
-                  }}
-                />
-              );
-            })}
-        </div>
-
-        <div className="phases">
-          {timeline.phases.map((phase) => (
-            <span key={`${phase.label}-${phase.t0}`} style={{ flexGrow: phase.t1 - phase.t0 }}>
-              {phase.label}
+    <>
+      <section className="console">
+        <div className="console-main">
+          <div className="console-bar">
+            {videoSrc &&
+              (showPaused ? (
+                <span className="paused">
+                  <PauseIcon />
+                  已定格
+                </span>
+              ) : (
+                <span className="playing">
+                  <PlayIcon />
+                  播放中
+                </span>
+              ))}
+            <span className="mono frame-no">第 {frame} 帧</span>
+            <span className="clock">
+              {timeline.clock.label}
+              <b>
+                <Markup text={clockQuantity?.symbol ?? timeline.clock.id} /> = <Markup text={format(timeline.clock.id, frame)} />{" "}
+                {timeline.clock.unit}
+              </b>
             </span>
-          ))}
-        </div>
-        <input
-          type="range"
-          aria-label="视频进度"
-          min={0}
-          max={lastFrame}
-          value={frame}
-          onChange={(event) => seekFrame(Number(event.target.value))}
-          onPointerUp={(event) => onSeekRelease(Number(event.currentTarget.value))}
-        />
-
-        <div className="controls">
-          <button type="button" onClick={togglePlay} disabled={!videoSrc}>
-            {paused ? "播放" : "暂停"}
-          </button>
-          <button type="button" onClick={() => seekFrame(frame - 1)}>
-            上一帧
-          </button>
-          <button type="button" onClick={() => seekFrame(frame + 1)}>
-            下一帧
-          </button>
-          <span>
-            {timeline.clock.label} <Markup text={format(timeline.clock.id, frame)} /> {timeline.clock.unit}
-          </span>
-          {videoSrc && (
-            <a href={videoSrc} download="定格物理讲解.mp4">
-              下载视频
-            </a>
-          )}
-        </div>
-
-        {timeline.events.length > 0 && (
-          <div className="controls">
-            <span>关键时刻：</span>
-            {timeline.events.map((event) => (
-              <button
-                type="button"
-                key={`${event.label}-${event.t}`}
-                onClick={() => seekFrame(Math.round(event.t * timeline.fps))}
-              >
-                {event.label}
-              </button>
-            ))}
           </div>
-        )}
-        <p className="note">暂停后，点画面里虚线框住的物体，可以只看它的物理量。</p>
-      </div>
 
-      <aside>
-        <section className="card">
-          <h2>{selected ? `${timeline.objects[selected].name}的物理量` : "此刻的物理量"}</h2>
-          <table>
-            <tbody>
-              {shownIds.map((id) => {
-                const quantity = quantityById.get(id);
-                if (!quantity) return null;
-                const value = format(id, frame);
+          <div className="stage" onClick={videoSrc ? onStageClick : undefined}>
+            {videoSrc ? (
+              <video
+                ref={video}
+                src={videoSrc}
+                preload="auto"
+                playsInline
+                onPlay={() => setPaused(false)}
+                onPause={() => setPaused(true)}
+                onEnded={() => setPaused(true)}
+                onSeeked={(event) => setFrame(frameOf(event.currentTarget.currentTime))}
+              />
+            ) : (
+              <div className="stage-waiting">
+                <b>{pending ?? "视频生成中"}</b>
+                <span>右边的物理量和下面的讲解已经可以看了，拖动进度条也能读数。</span>
+              </div>
+            )}
+            {showPaused &&
+              clickable.map((id) => {
+                const [x, y, width, height] = timeline.regions[id][frame];
+                const name = timeline.objects[id].name;
                 return (
-                  <tr key={id}>
-                    <th>
-                      <Markup text={quantity.symbol} />
-                    </th>
-                    <td>{quantity.name}</td>
-                    <td className="value">
-                      <Markup text={value} /> {value === "—" ? "" : quantity.unit}
-                    </td>
-                  </tr>
+                  <button
+                    key={id}
+                    type="button"
+                    className={id === selected ? "hitbox vf selected" : "hitbox vf"}
+                    aria-label={`查看${name}的物理量`}
+                    aria-pressed={id === selected}
+                    style={{ left: `${x}%`, top: `${y}%`, width: `${width}%`, height: `${height}%` }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelected(id === selected ? null : id);
+                      setTab("values");
+                    }}
+                  >
+                    <span className="tag">{name}</span>
+                  </button>
                 );
               })}
-            </tbody>
-          </table>
-        </section>
+          </div>
 
-        {timeline.formulas.length > 0 && (
-          <section className="card">
-            <h2>代入计算</h2>
-            {timeline.formulas.map(({ expr }) => (
-              <p className="formula" key={expr}>
-                <Markup text={expr.replace(SLOT, (_, id: string) => format(id, frame))} />
-              </p>
+          <div className="track">
+            <div className="phase-labels" aria-hidden="true">
+              {timeline.phases.map((phase) => (
+                <span
+                  key={`${phase.label}-${phase.t0}`}
+                  className={phase.t0 <= seconds && seconds < phase.t1 ? "now" : ""}
+                  style={{ flexGrow: phase.t1 - phase.t0, flexBasis: 0 }}
+                >
+                  {phase.label}
+                </span>
+              ))}
+            </div>
+            <div className="phase-bar" aria-hidden="true">
+              {timeline.phases.map((phase) => {
+                const share = phase.t1 > phase.t0 ? (seconds - phase.t0) / (phase.t1 - phase.t0) : 0;
+                const fill = `${Math.min(Math.max(share, 0), 1) * 100}%`;
+                return (
+                  <span
+                    key={`${phase.label}-${phase.t0}`}
+                    style={{ flexGrow: phase.t1 - phase.t0, flexBasis: 0, "--p": fill } as CSSProperties}
+                  />
+                );
+              })}
+            </div>
+            {timeline.events.map((event) => (
+              <span
+                key={`${event.label}-${event.t}`}
+                className="event-tick"
+                style={{ left: `${(event.t / timeline.duration) * 100}%` }}
+              />
             ))}
-          </section>
-        )}
+            <input
+              className="scrubber"
+              type="range"
+              aria-label="视频进度，按帧拖动"
+              aria-valuetext={`${clockText(seconds)}，第 ${frame} 帧`}
+              min={0}
+              max={lastFrame}
+              value={frame}
+              onChange={(event) => seekFrame(Number(event.target.value))}
+              onPointerUp={(event) => onSeekRelease(Number(event.currentTarget.value))}
+            />
+            <span className="playhead" style={{ left: `${(frame / Math.max(lastFrame, 1)) * 100}%` }} />
+          </div>
 
-        <section className="card">
-          <h2>视频讲解</h2>
-          <ol className="steps">
+          <div className="controls">
+            <button type="button" className="ctl play" onClick={togglePlay} disabled={!videoSrc} aria-label={paused ? "播放" : "暂停"}>
+              {paused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button type="button" className="ctl" onClick={() => seekFrame(frame - 1)} aria-label="上一帧">
+              <PrevFrameIcon />
+            </button>
+            <button type="button" className="ctl" onClick={() => seekFrame(frame + 1)} aria-label="下一帧">
+              <NextFrameIcon />
+            </button>
+            <span className="time mono">
+              {clockText(seconds)} / {clockText(timeline.duration)}
+            </span>
+            {timeline.events.map((event) => {
+              const index = Math.round(event.t * timeline.fps);
+              return (
+                <button
+                  type="button"
+                  key={`${event.label}-${event.t}`}
+                  className={index === frame ? "moment on" : "moment"}
+                  onClick={() => seekFrame(index)}
+                >
+                  {event.label}
+                </button>
+              );
+            })}
+            <span className="right">
+              <span>
+                <kbd>空格</kbd> 播放 <kbd>←</kbd>
+                <kbd>→</kbd> 逐帧
+              </span>
+              {videoSrc && (
+                <a href={videoSrc} download="定格物理讲解.mp4">
+                  <DownloadIcon />
+                  下载
+                </a>
+              )}
+            </span>
+          </div>
+        </div>
+
+        <aside className="readout">
+          <div className="tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={tab === "values"} onClick={() => setTab("values")}>
+              此刻的物理量
+            </button>
+            {timeline.formulas.length > 0 && (
+              <button type="button" role="tab" aria-selected={tab === "formulas"} onClick={() => setTab("formulas")}>
+                代入计算
+              </button>
+            )}
+          </div>
+
+          {tab === "values" ? (
+            <div className="panel" role="tabpanel">
+              {selected ? (
+                <>
+                  <div className="group sel">
+                    {timeline.objects[selected].name}
+                    <button type="button" onClick={() => setSelected(null)}>
+                      × 看全部
+                    </button>
+                  </div>
+                  {selectedIds.map((id) => row(quantityById.get(id), true))}
+                  {otherIds.length > 0 && (
+                    <div className="others">
+                      <div className="group">其他物理量</div>
+                      {otherIds.map((id) => row(quantityById.get(id), false))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                allIds.map((id) => row(quantityById.get(id), false))
+              )}
+            </div>
+          ) : (
+            <div className="panel" role="tabpanel">
+              {timeline.formulas.map(({ expr }) => (
+                <p className="formula" key={expr}>
+                  {expr.split(SLOT).map((piece, index) =>
+                    index % 2 === 0 ? (
+                      <Markup key={index} text={piece} />
+                    ) : (
+                      <span key={index} className={changing.has(piece) ? "live" : ""}>
+                        <Markup text={format(piece, frame)} />
+                      </span>
+                    ),
+                  )}
+                </p>
+              ))}
+            </div>
+          )}
+          <div className="panel-foot">
+            {tab === "values"
+              ? "暂停时点画面里框住的物体，它的物理量会排到最上面。"
+              : "黄色数字是这一帧的值，会随画面变化。"}
+          </div>
+        </aside>
+      </section>
+
+      <section className={solution ? "below" : "below single"}>
+        <div className="card">
+          <h2>讲解</h2>
+          <ol className="transcript">
             {timeline.steps.map((step, index) => (
               <li key={`${step.t}-${index}`}>
                 <button
                   type="button"
-                  className={index === activeStep ? "active" : ""}
+                  className={index === activeStep ? "now" : ""}
                   onClick={() => seekFrame(Math.round(step.t * timeline.fps))}
                 >
-                  <small>
-                    {step.title} · {step.t.toFixed(0)} 秒
-                  </small>
-                  <br />
-                  {step.text}
+                  <time>{clockText(step.t).replace(/\.\d$/, "")}</time>
+                  <span>
+                    <span className="ph">{step.title}</span>
+                    {step.text}
+                  </span>
                 </button>
               </li>
             ))}
           </ol>
-        </section>
-      </aside>
-    </div>
+        </div>
+        {solution}
+      </section>
+    </>
   );
 }
