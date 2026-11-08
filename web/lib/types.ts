@@ -13,6 +13,8 @@ export interface JobStatus {
   timeline_ready?: boolean;
   video_ready?: boolean;
   total_seconds?: number;
+  /** 图片题上传了几张图。 */
+  image_count?: number;
   /** 已经完成的每一步用了多少秒，键是 status 的名字。 */
   stage_seconds?: Record<string, number>;
   /** 渲染时的进度，比如 { stage: "rendering", done: 2, total: 4 }。 */

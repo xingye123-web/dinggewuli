@@ -7,69 +7,78 @@ import { imageToBase64 } from "@/lib/image";
 import { ArrowIcon, CameraIcon } from "./Icons";
 
 const MAX_TEXT = 3000;
+// 题目文字和题图常常不在一页上，允许分几张拍
+const MAX_IMAGES = 4;
+
+interface Picked {
+  file: File;
+  url: string;
+}
 
 export default function ProblemForm({ initialText = "" }: { initialText?: string }) {
   const router = useRouter();
   const [text, setText] = useState(initialText);
   const [invite, setInvite] = useState("");
   const [workerOnline, setWorkerOnline] = useState<boolean | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Picked[]>([]);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const urls = useRef<string[]>([]);
 
   useEffect(() => {
     void fetchWorkerOnline().then(setWorkerOnline);
   }, []);
 
-  // 换图或离开页面时释放预览图占用的内存
-  useEffect(() => {
-    return () => {
-      if (preview) URL.revokeObjectURL(preview);
-    };
-  }, [preview]);
+  // 离开页面时释放预览图占用的内存
+  useEffect(() => () => urls.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
-  function chooseFile(next: File | null) {
+  function addFiles(files: File[]) {
     setError(null);
-    if (next && !next.type.startsWith("image/")) {
-      setError("只能上传图片");
-      return;
-    }
-    setFile(next);
-    setPreview(next ? URL.createObjectURL(next) : null);
-  }
-
-  function clearFile() {
-    chooseFile(null);
+    const images = files.filter((file) => file.type.startsWith("image/"));
+    if (images.length < files.length) setError("只能上传图片");
+    const room = MAX_IMAGES - picked.length;
+    if (images.length > room) setError(`一道题最多 ${MAX_IMAGES} 张图片`);
+    const added = images.slice(0, Math.max(room, 0)).map((file) => {
+      const url = URL.createObjectURL(file);
+      urls.current.push(url);
+      return { file, url };
+    });
+    if (added.length) setPicked((current) => [...current, ...added]);
     if (fileInput.current) fileInput.current.value = "";
   }
 
+  function removeImage(index: number) {
+    setError(null);
+    setPicked((current) => {
+      URL.revokeObjectURL(current[index].url);
+      return current.filter((_, position) => position !== index);
+    });
+  }
+
   function onPaste(event: ClipboardEvent) {
-    const image = Array.from(event.clipboardData.files).find((item) => item.type.startsWith("image/"));
-    if (image) chooseFile(image);
+    const images = Array.from(event.clipboardData.files).filter((item) => item.type.startsWith("image/"));
+    if (images.length) addFiles(images);
   }
 
   function onDrop(event: DragEvent) {
     event.preventDefault();
     setDragging(false);
-    const image = Array.from(event.dataTransfer.files).find((item) => item.type.startsWith("image/"));
-    if (image) chooseFile(image);
-    else if (event.dataTransfer.files.length) setError("只能上传图片");
+    addFiles(Array.from(event.dataTransfer.files));
   }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!text.trim() && !file) {
+    if (!text.trim() && !picked.length) {
       setError("请输入题目或上传图片");
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
-      const imageBase64 = file ? await imageToBase64(file) : "";
-      const job = await submitProblem(text.trim(), imageBase64, invite.trim());
+      const imagesBase64 = await Promise.all(picked.map(({ file }) => imageToBase64(file)));
+      const job = await submitProblem(text.trim(), imagesBase64, invite.trim());
       router.push(`/jobs/${job.id}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "提交失败");
@@ -94,16 +103,22 @@ export default function ProblemForm({ initialText = "" }: { initialText?: string
         placeholder="例如：用滑轮组将重 240 N 的物体在 10 s 内匀速提升 2 m，绳子自由端的拉力为 100 N……"
       />
 
-      {preview ? (
-        <div className="preview">
-          {/* eslint-disable-next-line @next/next/no-img-element -- 本地预览图，不经过图片优化 */}
-          <img src={preview} alt="题目图片预览" />
-          <span>{file?.name}</span>
-          <button type="button" className="btn btn-quiet" onClick={clearFile}>
-            移除图片
-          </button>
-        </div>
-      ) : (
+      {picked.length > 0 && (
+        <ul className="previews">
+          {picked.map(({ file, url }, index) => (
+            <li key={url}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- 本地预览图，不经过图片优化 */}
+              <img src={url} alt={`第 ${index + 1} 张题目图片预览`} />
+              <span className="mono">{index + 1}</span>
+              <button type="button" onClick={() => removeImage(index)} aria-label={`移除第 ${index + 1} 张图片 ${file.name}`}>
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {picked.length < MAX_IMAGES && (
         <label
           className={dragging ? "drop vf over" : "drop vf"}
           onDragOver={(event) => {
@@ -116,15 +131,21 @@ export default function ProblemForm({ initialText = "" }: { initialText?: string
           <CameraIcon />
           <div>
             <strong>
-              拖入题目照片，或 <u>选择文件</u>
+              {picked.length ? "再加一张，" : "拖入题目照片，或 "}
+              <u>选择文件</u>
             </strong>
-            <small>也可以直接粘贴截图。拍照时让文字和题图都在画面里</small>
+            <small>
+              {picked.length
+                ? `题目文字和题图分开拍的，都传上来，最多 ${MAX_IMAGES} 张`
+                : `也可以直接粘贴截图。题目和题图不在一起时，可以传 ${MAX_IMAGES} 张以内`}
+            </small>
           </div>
           <input
             ref={fileInput}
             type="file"
+            multiple
             accept="image/png,image/jpeg,image/webp"
-            onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
+            onChange={(event) => addFiles(Array.from(event.target.files ?? []))}
           />
         </label>
       )}

@@ -59,3 +59,19 @@ export function CameraIcon() {
     </svg>
   );
 }
+
+export function FullscreenIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" />
+    </svg>
+  );
+}
+
+export function ExitFullscreenIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4" />
+    </svg>
+  );
+}

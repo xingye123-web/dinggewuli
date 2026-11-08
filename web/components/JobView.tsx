@@ -119,7 +119,12 @@ export default function JobView({ id }: { id: string }) {
         )}
 
         {awaiting && status ? (
-          <ConfirmForm id={id} initialText={status.problem_text ?? ""} initialFigure={status.figure ?? ""} />
+          <ConfirmForm
+            id={id}
+            imageCount={status.image_count ?? 1}
+            initialText={status.problem_text ?? ""}
+            initialFigure={status.figure ?? ""}
+          />
         ) : (
           status?.problem_text && (
             <section className="card problem">

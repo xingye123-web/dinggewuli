@@ -446,34 +446,62 @@ input:focus {
   opacity: 0;
 }
 
-.preview {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: 12px;
-  padding: 10px;
-  background: var(--paper);
-  border-radius: 8px;
+.previews {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.preview img {
-  display: block;
-  width: 120px;
-  max-height: 90px;
-  object-fit: contain;
+.previews li {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
   background: #fff;
   border: 1px solid var(--rule);
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
-.preview span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--ink-2);
-  font-size: 13px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.previews img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.previews span {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  padding: 0 6px;
+  color: #fff;
+  font-size: 12px;
+  background: rgb(28 32 38 / 0.7);
+  border-radius: 3px;
+}
+
+.previews button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  background: rgb(28 32 38 / 0.7);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.previews button:hover {
+  background: var(--orange-ink);
 }
 
 .submit-row {
@@ -807,6 +835,12 @@ input:focus {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 20px;
+}
+
+.confirm-images {
+  display: grid;
+  gap: 10px;
+  align-content: start;
 }
 
 .confirm-grid img {
@@ -1164,6 +1198,40 @@ kbd {
 .controls .right svg {
   width: 15px;
   height: 15px;
+}
+
+.ctl.fs {
+  margin-left: 4px;
+}
+
+/* 全屏：整个台面铺满屏幕。视频按屏幕高度缩放并保持 16:9，可点物体的框才对得准；
+   190px 留给上方的状态栏和下方的进度条、按钮 */
+.console.is-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.console.is-fullscreen .console-main {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.console.is-fullscreen .console-main > * {
+  width: min(100%, calc((100vh - 190px) * 16 / 9));
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.console.is-fullscreen .readout {
+  height: 100vh;
+  min-height: 0;
+  max-height: none;
 }
 
 /* 读数面板：高度跟着左边视频那一栏，物理量多了就在面板里滚动 */
@@ -1574,6 +1642,36 @@ kbd {
     max-height: 520px;
     border-top: 1px solid var(--console-line);
     border-left: 0;
+  }
+}
+
+@media (max-width: 1080px) {
+  /* 屏幕窄时全屏只放视频和按钮，读数面板放不下 */
+  .console.is-fullscreen .readout {
+    display: none;
+  }
+}
+
+@media (max-height: 520px) {
+  /* 手机横屏全屏：只留进度条和主要按钮，把高度让给视频 */
+  .console.is-fullscreen .console-main {
+    padding: 6px 12px;
+  }
+
+  .console.is-fullscreen .console-main > * {
+    width: min(100%, calc((100vh - 84px) * 16 / 9));
+  }
+
+  .console.is-fullscreen .console-bar,
+  .console.is-fullscreen .phase-labels,
+  .console.is-fullscreen .moment,
+  .console.is-fullscreen .time,
+  .console.is-fullscreen .controls .right {
+    display: none;
+  }
+
+  .console.is-fullscreen .track {
+    margin-top: 6px;
   }
 }
 

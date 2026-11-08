@@ -42,11 +42,16 @@ MAX_OUTPUT_BYTES = int(os.environ.get("MAX_OUTPUT_BYTES", str(300 * 1024 * 1024)
 DEEPSEEK_API_KEY = _secret("CHUANZHI_DEEPSEEK_API_KEY")
 BREEZE_API_KEY = _secret("CHUANZHI_BREEZE_API_KEY")
 DEEPSEEK_URL = os.environ.get("DEEPSEEK_URL", "https://api.deepseek.com")
-# 只有 flash 能看图，所以图片题先由它转写。解题和写代码用不同的模型，答案核对才算两个独立来源
+# 只有 flash 能看图，所以图片题由它转写
 VISION_MODEL = os.environ.get("DEEPSEEK_VISION_MODEL", "deepseek-flash")
-SOLVE_MODEL = os.environ.get("DEEPSEEK_SOLVE_MODEL", "deepseek-v4-pro")
+# 解题：2026-11-06 实测 flash 高强度和 v4-pro 一样准（18 道题共 33 次全对），平均 16 秒，v4-pro 高强度 74 秒，
+# 还偶尔返回坏掉的 JSON。flash 低强度解难题会把力的方向弄反，不要用。
+# 写代码的模型看得到解答，答案核对查的是代码有没有写错，不靠两个模型互相印证，所以两步都用 flash 没有损失
+SOLVE_MODEL = os.environ.get("DEEPSEEK_SOLVE_MODEL", "deepseek-flash")
+SOLVE_EFFORT = os.environ.get("DEEPSEEK_SOLVE_EFFORT", "high")
 AUTHOR_MODEL = os.environ.get("DEEPSEEK_AUTHOR_MODEL", "deepseek-flash")
-# 实测 low 比默认的 high 快约三分之一，重写次数也没增加（7 道题：52 秒对 80 秒）
+# 写代码：2026-11-06 实测 5 道难题各 2 次，flash 低强度最快也最稳（平均 111 秒，8/10 第一次就通过），
+# 高强度 162 秒、max 228 秒，通过率没有提高；v4-pro 更慢，也更常要修改
 AUTHOR_EFFORT = os.environ.get("DEEPSEEK_AUTHOR_EFFORT", "low")
 MAX_AUTHOR_ATTEMPTS = int(os.environ.get("MAX_AUTHOR_ATTEMPTS", "4"))
 BREEZE_URL = os.environ.get("BREEZE_URL", "https://api.breeze.blue")

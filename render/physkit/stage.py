@@ -19,23 +19,63 @@ _EDGE_MARGIN = 0.05
 
 
 class _Board(Part):
-    """画面右上方的板书，只显示最新的几行，最新一行高亮。"""
+    """画面右上方的板书，只显示最新的几行，最新一条算式高亮。
+
+    所有行用同一个字号。一条算式太长时，在等号或中文逗号处换行，续行缩进，不再整行缩小，
+    否则长的算式字小、短的字大，看起来很乱。
+    """
+
+    FONT_SIZE = 25
+    INDENT = 0.45
 
     def __init__(self, timeline):
         super().__init__()
         self.timeline = timeline
         self._groups = {}
+        self._rows = {}
+
+    def _text(self, content, color=INK):
+        return MarkupText(_markup(content), font=FONT, font_size=self.FONT_SIZE, color=color)
+
+    def _fits(self, content, indent=0.0):
+        return self._text(content).width <= BOARD_WIDTH - indent
+
+    def _split(self, content):
+        """把一条算式拆成几行。先按中文逗号分成几个式子，每个式子再按等号贪心地装进一行。"""
+        if self._fits(content):
+            return [content]
+        rows = []
+        for clause in re.split(r"\s*，\s*", content):
+            pieces = clause.split(" = ")
+            row = pieces[0]
+            for piece in pieces[1:]:
+                candidate = f"{row} = {piece}"
+                if self._fits(candidate, self.INDENT if rows else 0.0):
+                    row = candidate
+                else:
+                    rows.append(row)
+                    row = f"= {piece}"
+            rows.append(row)
+        return rows
+
+    def _rows_for(self, index):
+        if index not in self._rows:
+            self._rows[index] = self._split(self.timeline.board_lines[index]["text"])
+        return self._rows[index]
 
     def _group(self, count):
         if count not in self._groups:
+            rows = [(row, index, k) for index in range(count) for k, row in enumerate(self._rows_for(index))]
             group = VGroup()
-            shown = self.timeline.board_lines[max(count - BOARD_MAX_LINES, 0) : count]
-            for row, line in enumerate(shown):
-                is_newest = row == len(shown) - 1
-                text = MarkupText(_markup(line["text"]), font=FONT, font_size=25, color=ROPE if is_newest else INK)
-                if text.width > BOARD_WIDTH:
-                    text.scale(BOARD_WIDTH / text.width)
-                text.move_to(_point(BOARD_LEFT, BOARD_TOP - BOARD_LINE_HEIGHT * row), aligned_edge=_point(-1, 0))
+            for position, (content, index, k) in enumerate(rows[-BOARD_MAX_LINES:]):
+                text = self._text(content, ROPE if index == count - 1 else INK)
+                indent = self.INDENT if k > 0 else 0.0
+                if text.width > BOARD_WIDTH - indent:
+                    # 一个式子本身就放不下时才缩小，正常情况下不会发生
+                    text.scale((BOARD_WIDTH - indent) / text.width)
+                text.move_to(
+                    _point(BOARD_LEFT + indent, BOARD_TOP - BOARD_LINE_HEIGHT * position), aligned_edge=_point(-1, 0)
+                )
                 group.add(text)
             self._groups[count] = group
         return self._groups[count]

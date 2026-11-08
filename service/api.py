@@ -21,6 +21,7 @@ from . import settings, store
 # 零件库或流程升级后，同样的输入要重新生成
 PIPELINE_VERSION = "0.4.0"
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_IMAGES = 4  # 题目文字和题图常常不在一页上，允许分几张拍
 MAX_TEXT_CHARS = 3000
 _IMAGE_TYPES = (
     (b"\x89PNG\r\n\x1a\n", "image/png"),
@@ -50,7 +51,8 @@ def require_worker(authorization: str = Header(default="")):
 
 class ProblemRequest(BaseModel):
     text: str = Field(default="", max_length=MAX_TEXT_CHARS)
-    image_base64: str = Field(default="", max_length=MAX_IMAGE_BYTES * 2)
+    image_base64: str = Field(default="", max_length=MAX_IMAGE_BYTES * 2)  # 旧版网页只传一张
+    images_base64: list[str] = Field(default_factory=list, max_length=MAX_IMAGES)
     invite: str = Field(default="", max_length=100)
 
 
@@ -122,11 +124,15 @@ def healthz():
 def submit_problem(request: ProblemRequest, response: Response):
     """提交一道题（文字或图片），生成带配音的讲解视频。"""
     text = request.text.strip()
-    if not text and not request.image_base64:
+    encoded = [item for item in request.images_base64 if item] or ([request.image_base64] if request.image_base64 else [])
+    if not text and not encoded:
         raise HTTPException(status_code=422, detail="题目文字和图片至少要有一个")
-    image = _image_data_url(request.image_base64) if request.image_base64 else ""
+    if any(len(item) > MAX_IMAGE_BYTES * 2 for item in encoded):
+        raise HTTPException(status_code=422, detail="图片不能超过 8 MB")
+    images = [_image_data_url(item) for item in encoded]
 
-    job_id = store.job_id_for(PIPELINE_VERSION, settings.SOLVE_MODEL, settings.AUTHOR_MODEL, text, request.image_base64)
+    # 只有一张图时和旧版的任务号一样，做过的题不会重做
+    job_id = store.job_id_for(PIPELINE_VERSION, settings.SOLVE_MODEL, settings.AUTHOR_MODEL, text, *(encoded or [""]))
     existing = _job_status(job_id)
     if existing and existing.get("status") != "failed":
         # 做过的题直接给结果，不占用次数
@@ -137,7 +143,10 @@ def submit_problem(request: ProblemRequest, response: Response):
         # 失败的题再次提交时重新生成，否则会一直拿到上次的失败结果
         store.reset(job_id)
     else:
-        store.create(job_id, {"problem.json": json.dumps({"text": text, "image": image}, ensure_ascii=False)})
+        problem = {"text": text, "image": images[0] if images else "", "images": images}
+        store.create(job_id, {"problem.json": json.dumps(problem, ensure_ascii=False)})
+        if images:
+            store.update_status(job_id, image_count=len(images))
     return _public(store.read_status(job_id))
 
 
@@ -210,13 +219,20 @@ def solution(job_id: str):
 
 @app.get("/v1/renders/{job_id}/image")
 def problem_image(job_id: str):
-    """用户上传的题目图片，核对读图结果时对照着看。"""
+    return problem_image_at(job_id, 0)
+
+
+@app.get("/v1/renders/{job_id}/images/{index}")
+def problem_image_at(job_id: str, index: int):
+    """用户上传的题目图片，核对读图结果时对照着看。index 从 0 开始。"""
     if _job_status(job_id) is None:
         raise HTTPException(status_code=404, detail="任务不存在")
     path = store.job_dir(job_id) / "problem.json"
-    image = json.loads(path.read_text(encoding="utf-8")).get("image", "") if path.exists() else ""
-    if not image:
-        raise HTTPException(status_code=404, detail="这道题没有图片")
+    problem = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    images = problem.get("images") or ([problem["image"]] if problem.get("image") else [])
+    if not 0 <= index < len(images):
+        raise HTTPException(status_code=404, detail="这道题没有这张图片")
+    image = images[index]
     header, encoded = image.split(",", 1)
     return Response(content=base64.b64decode(encoded), media_type=header.removeprefix("data:").split(";")[0])
 

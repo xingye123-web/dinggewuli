@@ -47,6 +47,17 @@ def _keep_inside(label):
     return label
 
 
+def _text_fit_problems(content, label, width, height):
+    """物块上的字放不下时，要说清是宽度还是高度不够，模型才知道该加宽物块，还是把字挪到旁边。"""
+    if label.width > width:
+        return [f"物块上的文字「{content}」太宽：文字宽 {label.width:.2f}，物块宽 {width:.2f}。"
+                "把物块加宽，或者把文字用 Readout 放到物块旁边"]
+    if label.height > height:
+        return [f"物块上的文字「{content}」太高：文字高 {label.height:.2f}，物块只有 {height:.2f} 高。"
+                "盖板、木板这类薄物块不要在上面写字，把文字用 Readout 放到物块旁边"]
+    return []
+
+
 def _text(content, size, color):
     return Text(content, font=FONT, font_size=size, color=color)
 
@@ -293,9 +304,7 @@ class Block(Part):
 
     def problems(self, f):
         label = self._label(f)
-        if label and (label.width > self.w or label.height > self.h):
-            return [f"物块上的文字「{_val(self.text, f)}」放不下：文字宽 {label.width:.2f}，物块宽 {self.w}"]
-        return []
+        return _text_fit_problems(_val(self.text, f), label, self.w, self.h) if label else []
 
     def edges(self, f):
         x0, y0, x1, y1 = self.bounds(f)
@@ -918,10 +927,7 @@ class _TiltedBlock(Part):
 
     def problems(self, f):
         label = self._label(f)
-        if label and (label.width > self.w * 0.9 or label.height > self.h * 0.9):
-            return [f"物块上的文字「{_val(self.text, f)}」放不下：文字宽 {label.width:.2f}，物块宽 {self.w}，"
-                    "把物块加宽或把文字移到旁边"]
-        return []
+        return _text_fit_problems(_val(self.text, f), label, self.w * 0.9, self.h * 0.9) if label else []
 
 
 class _LeverBar(Part):

@@ -6,7 +6,8 @@ from . import examples, settings
 
 _RENDER = settings.ROOT / "render"
 
-TRANSCRIBE = """你要把一张中国初中物理题的照片转成文字。只读题，不要解题。
+TRANSCRIBE = """你要把中国初中物理题的照片转成文字。只读题，不要解题。
+照片可能有几张，比如题目文字和题图分开拍了，它们是同一道题，题图信息要和题目里的说法对应起来。
 
 输出 JSON：
 {

@@ -3,7 +3,7 @@
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatNumber } from "@/lib/format";
 import type { Quantity, Timeline } from "@/lib/types";
-import { DownloadIcon, NextFrameIcon, PauseIcon, PlayIcon, PrevFrameIcon } from "./Icons";
+import { DownloadIcon, ExitFullscreenIcon, FullscreenIcon, NextFrameIcon, PauseIcon, PlayIcon, PrevFrameIcon } from "./Icons";
 import Markup from "./Markup";
 
 const SNAP_FRAMES = 5; // 松手时离关键时刻这么近，就吸过去，读数正好是题目的值
@@ -33,6 +33,8 @@ function isTyping(target: EventTarget | null) {
 
 export default function VideoPlayer({ timeline, videoSrc, pending, solution }: Props) {
   const video = useRef<HTMLVideoElement>(null);
+  const consoleBox = useRef<HTMLElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
   const [frame, setFrame] = useState(0);
   const [paused, setPaused] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
@@ -113,7 +115,29 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
     }
   }, [frame, lastFrame]);
 
-  // 空格播放或暂停，左右方向键逐帧。正在输入文字、或焦点在按钮上按空格时交给浏览器处理
+  // 全屏的是整个台面，不只是视频：暂停后还能点物体、拖进度条、看读数。
+  // iPhone 的 Safari 不支持把普通元素全屏，只能退回到系统自带的视频全屏
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+    const box = consoleBox.current;
+    if (box && document.fullscreenEnabled) {
+      void box.requestFullscreen().catch(() => undefined);
+      return;
+    }
+    const element = video.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+    element?.webkitEnterFullscreen?.();
+  }, []);
+
+  useEffect(() => {
+    const sync = () => setFullscreen(!!consoleBox.current && document.fullscreenElement === consoleBox.current);
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  // 空格播放或暂停，左右方向键逐帧，F 全屏。正在输入文字、或焦点在按钮上按空格时交给浏览器处理
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target)) return;
@@ -122,6 +146,9 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
       if (event.key === " " && !onControl && !onSlider) {
         event.preventDefault();
         togglePlay();
+      } else if ((event.key === "f" || event.key === "F") && !onControl) {
+        event.preventDefault();
+        toggleFullscreen();
       } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !onSlider) {
         event.preventDefault();
         seekFrame(frame + (event.key === "ArrowLeft" ? -1 : 1));
@@ -129,7 +156,7 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [frame, togglePlay, seekFrame]);
+  }, [frame, togglePlay, seekFrame, toggleFullscreen]);
 
   function onStageClick() {
     if (selected) setSelected(null);
@@ -173,7 +200,7 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
 
   return (
     <>
-      <section className="console">
+      <section className={fullscreen ? "console is-fullscreen" : "console"} ref={consoleBox}>
         <div className="console-main">
           <div className="console-bar">
             {videoSrc &&
@@ -314,7 +341,7 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
             <span className="right">
               <span>
                 <kbd>空格</kbd> 播放 <kbd>←</kbd>
-                <kbd>→</kbd> 逐帧
+                <kbd>→</kbd> 逐帧 <kbd>F</kbd> 全屏
               </span>
               {videoSrc && (
                 <a href={videoSrc} download="定格物理讲解.mp4">
@@ -323,6 +350,15 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
                 </a>
               )}
             </span>
+            <button
+              type="button"
+              className="ctl fs"
+              onClick={toggleFullscreen}
+              aria-label={fullscreen ? "退出全屏" : "全屏"}
+              title={fullscreen ? "退出全屏（F）" : "全屏（F）"}
+            >
+              {fullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
+            </button>
           </div>
         </div>
 

@@ -81,7 +81,11 @@ def _read_problem(job_id, problem, tracker):
     prompt = [{"type": "text", "text": prompts.TRANSCRIBE}]
     if problem.get("text"):
         prompt.append({"type": "text", "text": f"用户补充的文字：{problem['text']}"})
-    prompt.append({"type": "image_url", "image_url": {"url": problem["image"]}})
+    images = problem.get("images") or [problem["image"]]
+    if len(images) > 1:
+        prompt.append({"type": "text", "text": f"下面 {len(images)} 张照片是同一道题，按顺序合起来转写成一道题。"})
+    for image in images:
+        prompt.append({"type": "image_url", "image_url": {"url": image}})
     result, usage = deepseek.chat_json([{"role": "user", "content": prompt}], settings.VISION_MODEL)
     tracker.add_usage(usage)
     (store.job_dir(job_id) / "transcript.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -96,6 +100,7 @@ def _solve(job_id, text, figure, tracker):
     solution, usage = deepseek.chat_json(
         [{"role": "system", "content": prompts.SOLVE}, {"role": "user", "content": content}],
         settings.SOLVE_MODEL,
+        effort=settings.SOLVE_EFFORT,
     )
     tracker.add_usage(usage)
     (store.job_dir(job_id) / "solution.json").write_text(json.dumps(solution, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -210,7 +215,7 @@ def run_problem(job_id):
 
     def work():
         tracker = _Tracker(job_id)
-        if problem.get("image") and not problem.get("confirmed"):
+        if (problem.get("images") or problem.get("image")) and not problem.get("confirmed"):
             # 读图可能读错，比如绳子段数。读错了后面全错，而且答案核对查不出来，所以先让用户确认
             text, figure = _read_problem(job_id, problem, tracker)
             tracker.enter("awaiting_confirmation", problem_text=text, figure=figure)

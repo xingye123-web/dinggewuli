@@ -10,7 +10,7 @@ from . import settings
 RETRY_CODES = {429, 500, 502, 503, 504}
 MAX_TRIES = 4
 TIMEOUT_SECONDS = 600
-MAX_TOKENS = 40000  # 含思考过程，太小会只有思考没有正文
+MAX_TOKENS = 100000  # 含思考过程，太小会只有思考没有正文。实测难题写代码一次就可能超过 4 万
 
 
 class DeepSeekError(Exception):
@@ -50,8 +50,8 @@ def chat(messages, model, json_mode=False, effort=""):
     raise DeepSeekError(f"调用 {model} 失败：{last_error}")
 
 
-def chat_json(messages, model):
-    content, usage = chat(messages, model, json_mode=True)
+def chat_json(messages, model, effort=""):
+    content, usage = chat(messages, model, json_mode=True, effort=effort)
     try:
         return json.loads(content), usage
     except ValueError as error:

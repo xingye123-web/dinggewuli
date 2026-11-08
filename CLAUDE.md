@@ -17,6 +17,8 @@ DeepSeek 碰到零件库没有的东西时，会先用基础零件拼，并在�
 4. 重新生成手册：在 `render/` 下运行 `../.venv/Scripts/python -m physkit.catalog > CATALOG.md`。
 5. 检查示例：`.venv/Scripts/python scripts/check_scene.py render/examples/<文件>.py --render`，看视频截图确认画面。
 6. physkit 改了要重建渲染镜像（`docker build -t physics-renderer:0.1 render`），再重启 worker。
+   worker 由开机计划任务「dingge-worker」通过 `scripts/worker-service.ps1` 在后台运行，退出后 10 秒自动重启，日志在 `.dev/worker-service.log`。
+   重启的做法是结束它下面的 `python -m service.laptop_worker` 进程（先确认服务器上没有正在做的题），不要再另开 `scripts/worker.ps1`，否则会有两个 worker 抢任务。
 7. 把做完的零件的关键词加进 `.dev/requests/已处理.json`（JSON 数组，比如 "杠杆"），名字里含这个词的需求就不再列。
 8. 候选示例要审核后再手动放进示例库，不要原样照搬，也不要自动加。
 

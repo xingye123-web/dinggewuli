@@ -14,10 +14,11 @@ export const fetchStatus = (id: string) => getJson<JobStatus>(jobUrl(id));
 export const fetchSolution = (id: string) => getJson<Solution>(`${jobUrl(id)}/solution.json`);
 export const fetchTimeline = (id: string) => getJson<Timeline>(`${jobUrl(id)}/timeline.json`);
 
-export const imageUrl = (id: string) => `${jobUrl(id)}/image`;
+/** 第 index 张题目图片，从 0 开始。 */
+export const imageUrl = (id: string, index = 0) => `${jobUrl(id)}/images/${index}`;
 
-export const submitProblem = (text: string, imageBase64: string, invite: string) =>
-  post("/api/problems", { text, image_base64: imageBase64, invite });
+export const submitProblem = (text: string, imagesBase64: string[], invite: string) =>
+  post("/api/problems", { text, images_base64: imagesBase64, invite });
 
 /** 笔记本最近来领过任务，才能生成新题。 */
 export async function fetchWorkerOnline(): Promise<boolean> {
