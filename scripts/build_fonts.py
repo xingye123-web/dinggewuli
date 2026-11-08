@@ -22,6 +22,7 @@ TEXT = ROOT / "web" / "fonts" / "serif-text.txt"
 OUT = ROOT / "web" / "public" / "fonts"
 FAMILY = "Dingge Serif"
 GREEK = "αβγδεηθλμνπρστφωΔΘΛΣΦΩ"
+HERO = "把物理过程按下暂停"
 LATIN = string.ascii_letters + string.digits + " .,:;!?()[]/+-=×÷−%'\""
 
 
@@ -34,7 +35,7 @@ def build(weight, text, name):
     subsetter = subset.Subsetter(options)
     subsetter.populate(text=text)
     subsetter.subset(font)
-    style = "Bold" if weight >= 600 else "Regular"
+    style = "Black" if weight >= 850 else "Bold" if weight >= 600 else "Regular"
     for record in font["name"].names:
         if record.nameID in (1, 16):
             record.string = FAMILY
@@ -55,6 +56,8 @@ def main():
     headings = "".join(sorted(set(TEXT.read_text(encoding="utf-8")) - set("\r\n")))
     build(700, headings + LATIN + GREEK, "dingge-serif-700.woff")
     build(400, LATIN + GREEK, "dingge-serif-400.woff")
+    # 首页大标题用最粗的一档
+    build(900, HERO, "dingge-serif-900.woff")
 
 
 if __name__ == "__main__":

@@ -13,12 +13,21 @@ export interface JobStatus {
   timeline_ready?: boolean;
   video_ready?: boolean;
   total_seconds?: number;
+  /** 文字解析的步骤配图已经生成。 */
+  steps_ready?: boolean;
   /** 图片题上传了几张图。 */
   image_count?: number;
   /** 已经完成的每一步用了多少秒，键是 status 的名字。 */
   stage_seconds?: Record<string, number>;
   /** 渲染时的进度，比如 { stage: "rendering", done: 2, total: 4 }。 */
   progress?: { stage?: string; done?: number; total?: number } | null;
+}
+
+/** 解题步骤的配图：第 step 步（从 1 开始）配视频 t 秒处的截图。 */
+export interface StepImage {
+  step: number;
+  t: number;
+  image: string;
 }
 
 /** 模型独立解题的结果。内容来自模型，字段都可能缺失。 */

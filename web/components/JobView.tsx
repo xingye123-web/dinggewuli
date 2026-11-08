@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { fetchSolution, fetchStatus, fetchTimeline, fetchWorkerOnline, videoUrl } from "@/lib/api";
-import type { JobStatus, Solution, Timeline } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import { fetchSolution, fetchStatus, fetchSteps, fetchTimeline, fetchWorkerOnline, stepImageUrl, videoUrl } from "@/lib/api";
+import type { JobStatus, Solution, StepImage, Timeline } from "@/lib/types";
 import ConfirmForm from "./ConfirmForm";
 import Progress from "./Progress";
-import SolutionPanel from "./SolutionPanel";
+import SolutionPanel, { type StepPicture } from "./SolutionPanel";
 import TopBar from "./TopBar";
-import VideoPlayer from "./VideoPlayer";
+import VideoPlayer, { type PlayerHandle } from "./VideoPlayer";
 
 const POLL_MS = 2000;
 const MAX_POLL_FAILURES = 5;
@@ -58,6 +58,8 @@ export default function JobView({ id }: { id: string }) {
   const [status, setStatus] = useState<JobStatus | null>(null);
   const [solution, setSolution] = useState<Solution | null>(null);
   const [timeline, setTimeline] = useState<Timeline | null>(null);
+  const [steps, setSteps] = useState<StepImage[]>([]);
+  const player = useRef<PlayerHandle>(null);
   const [lostConnection, setLostConnection] = useState(false);
   const [workerOnline, setWorkerOnline] = useState(true);
 
@@ -101,15 +103,22 @@ export default function JobView({ id }: { id: string }) {
     if (timelineReady) fetchTimeline(id).then(setTimeline, () => setTimeline(null));
   }, [id, timelineReady]);
 
+  const stepsReady = !!status?.steps_ready;
+  useEffect(() => {
+    if (stepsReady) fetchSteps(id).then(setSteps, () => setSteps([]));
+  }, [id, stepsReady]);
+
   const failed = status?.status === "failed";
   const finished = status?.status === "done";
   const awaiting = status?.status === "awaiting_confirmation";
-  const solutionCard = solution ? <SolutionPanel solution={solution} /> : null;
+  const pictures: Record<number, StepPicture> = Object.fromEntries(
+    steps.map((step) => [step.step, { url: stepImageUrl(id, step.step), t: step.t }]),
+  );
   const stateClass = finished ? "state done" : failed ? "state failed" : "state busy";
 
   return (
     <>
-      <TopBar page="job" />
+      <TopBar page="job" feedbackFrom={`/jobs/${id}`} />
       <main className="wrap">
         {!status && !lostConnection && <p className="hint">正在读取任务…</p>}
         {lostConnection && (
@@ -137,7 +146,10 @@ export default function JobView({ id }: { id: string }) {
                   <span className="muted mono">用时 {duration(status.total_seconds)}</span>
                 )}
                 {(finished || failed) && (
-                  <Link href={`/?text=${encodeURIComponent(editableText(status))}`}>题目读错了？修改后重新生成</Link>
+                  <span className="problem-links">
+                    <Link href={`/?text=${encodeURIComponent(editableText(status))}`}>题目读错了？修改后重新生成</Link>
+                    <Link href={`/feedback?from=${encodeURIComponent(`/jobs/${id}`)}`}>讲解有问题？反馈给我们</Link>
+                  </span>
                 )}
               </div>
               <p className="problem-text">{status.problem_text}</p>
@@ -158,18 +170,33 @@ export default function JobView({ id }: { id: string }) {
         )}
 
         {timeline ? (
+          <>
           <VideoPlayer
             timeline={timeline}
             videoSrc={status?.video_ready ? videoUrl(id) : null}
             pending={pendingText(status)}
-            solution={solutionCard}
+            ref={player}
           />
+            {solution && (
+              <section className="below single">
+                <SolutionPanel
+                  solution={solution}
+                  pictures={pictures}
+                  onSeek={(seconds) => player.current?.seek(seconds)}
+                />
+              </section>
+            )}
+          </>
         ) : (
           <>
             {status && !failed && !awaiting && (
               <Progress status={status} solutionReady={solutionReady} workerOnline={workerOnline} />
             )}
-            {solutionCard && <section className="below single">{solutionCard}</section>}
+            {solution && (
+              <section className="below single">
+                <SolutionPanel solution={solution} />
+              </section>
+            )}
           </>
         )}
       </main>

@@ -110,6 +110,11 @@ def jobs_created_since(seconds):
     return sum(1 for status in _all_statuses() if status.get("created_at", 0) >= cutoff)
 
 
+def queued_count():
+    """排队等着生成的题有几道。"""
+    return sum(1 for status in _all_statuses() if status.get("status") == "queued")
+
+
 def claim_next():
     """把最早排队的任务交给笔记本。断线的笔记本留下的任务也会被重新领走。"""
     now = time.time()

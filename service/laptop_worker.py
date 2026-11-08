@@ -34,6 +34,8 @@ def _prepare_local(job):
         (directory / "problem.json").write_text(json.dumps(job["problem"], ensure_ascii=False), encoding="utf-8")
     if job.get("code") is not None:
         (directory / "scene.py").write_text(job["code"], encoding="utf-8")
+    if job.get("solution") is not None:
+        (directory / "solution.json").write_text(json.dumps(job["solution"], ensure_ascii=False, indent=1), encoding="utf-8")
     store.write_status(job_id, job["status"])
 
 

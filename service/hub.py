@@ -55,6 +55,11 @@ def claim():
     return _post_json("/v1/worker/claim", {})
 
 
+def queue_length():
+    """服务器上排队的题有几道。"""
+    return (_request("GET", "/v1/worker/queue") or {}).get("queued", 0)
+
+
 def heartbeat(job_id=None):
     _post_json("/v1/worker/heartbeat", {"job_id": job_id})
 
@@ -68,5 +73,11 @@ def push_status(job_id, status, changed):
     for flag, name in ARTIFACTS.items():
         if changed.get(flag):
             upload(job_id, name)
+    if changed.get("steps_ready"):
+        # 先传截图，最后传 steps.json，网页拿到清单时图片都已经在服务器上
+        steps = json.loads((store.job_dir(job_id) / "steps.json").read_text(encoding="utf-8"))
+        for step in steps:
+            upload(job_id, step["image"])
+        upload(job_id, "steps.json")
     public = {key: value for key, value in status.items() if key not in ("created_at", "lease_until")}
     _post_json(f"/v1/worker/jobs/{job_id}/status", public)

@@ -617,7 +617,7 @@ class Plot(Part):
         return group
 
 
-_BACKGROUND = "#10151C"
+_BACKGROUND = "#12291F"  # 视频底色：墨绿。网页台面 --console 用同一个颜色
 _SIDES = {"top": _point(0, 1), "bottom": _point(0, -1), "left": _point(-1, 0), "right": _point(1, 0)}
 _OPPOSITE = {"top": "bottom", "bottom": "top", "left": "right", "right": "left"}
 

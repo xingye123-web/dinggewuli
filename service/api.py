@@ -6,6 +6,7 @@
 import base64
 import json
 import os
+import re
 import secrets
 import tempfile
 import time
@@ -19,7 +20,7 @@ from render.scene_check import MAX_BYTES, check_code
 from . import settings, store
 
 # 零件库或流程升级后，同样的输入要重新生成
-PIPELINE_VERSION = "0.4.0"
+PIPELINE_VERSION = "0.5.0"  # 0.5.0：视频底色改成墨绿
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_IMAGES = 4  # 题目文字和题图常常不在一页上，允许分几张拍
 MAX_TEXT_CHARS = 3000
@@ -30,7 +31,8 @@ _IMAGE_TYPES = (
 )
 _WORKER_FILE = "_worker.json"
 # 笔记本能上传的文件，网页只会读其中几个
-_UPLOADS = {"solution.json", "timeline.json", "video.mp4", "transcript.json", "narration.json", "scene.py"}
+_UPLOADS = {"solution.json", "timeline.json", "video.mp4", "transcript.json", "narration.json", "scene.py", "steps.json"}
+_STEP_IMAGE = re.compile(r"^step([1-9]|1[0-2])\.jpg$")  # 解题步骤的配图 step1.jpg…step12.jpg
 # 笔记本推送状态时不能改的字段
 _SERVER_FIELDS = {"id", "created_at", "lease_until"}
 
@@ -112,6 +114,45 @@ def _check_quota(invite):
         raise HTTPException(status_code=403, detail="邀请码不对")
     if store.jobs_created_since(24 * 3600) >= settings.MAX_JOBS_PER_DAY:
         raise HTTPException(status_code=429, detail="今天的生成次数已经用完，请明天再来")
+
+
+MAX_FEEDBACK_PER_DAY = 200
+FEEDBACK_DIR = "_feedback"  # 在 ARTIFACTS_DIR 下，名字不是任务号，不会被当成任务
+
+
+class FeedbackRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    contact: str = Field(default="", max_length=100)
+    page: str = Field(default="", max_length=300)  # 从哪个页面点进来的，比如某道题的讲解页
+    images_base64: list[str] = Field(default_factory=list, max_length=MAX_IMAGES)
+
+
+@app.post("/v1/feedback", status_code=201, dependencies=[Depends(require_token)])
+def submit_feedback(request: FeedbackRequest):
+    """收用户的意见和截图，存在服务器上，用 scripts/fetch_feedback.sh 取回本机。"""
+    if not request.text.strip():
+        raise HTTPException(status_code=422, detail="请写下你的建议")
+    if any(len(item) > MAX_IMAGE_BYTES * 2 for item in request.images_base64):
+        raise HTTPException(status_code=422, detail="图片不能超过 8 MB")
+    images = [_image_data_url(item) for item in request.images_base64 if item]
+    root = settings.ARTIFACTS_DIR / FEEDBACK_DIR
+    root.mkdir(parents=True, exist_ok=True)
+    today = time.strftime("%Y%m%d")
+    if sum(1 for path in root.iterdir() if path.name.startswith(today)) >= MAX_FEEDBACK_PER_DAY:
+        raise HTTPException(status_code=429, detail="今天收到的反馈太多了，请明天再提交")
+    directory = root / f"{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
+    directory.mkdir()
+    names = []
+    for index, image in enumerate(images, start=1):
+        header, encoded = image.split(",", 1)
+        extension = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[header[5:].split(";")[0]]
+        name = f"image{index}.{extension}"
+        (directory / name).write_bytes(base64.b64decode(encoded))
+        names.append(name)
+    record = {"text": request.text.strip(), "contact": request.contact.strip(), "page": request.page.strip(),
+              "images": names, "created_at": time.time()}
+    (directory / "feedback.json").write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
+    return {"ok": True}
 
 
 @app.get("/healthz")
@@ -217,6 +258,18 @@ def solution(job_id: str):
     return _artifact(job_id, "solution.json", "application/json", "solution_ready")
 
 
+@app.get("/v1/renders/{job_id}/steps.json")
+def steps(job_id: str):
+    return _artifact(job_id, "steps.json", "application/json", "steps_ready")
+
+
+@app.get("/v1/renders/{job_id}/step/{number}.jpg")
+def step_image(job_id: str, number: int):
+    if not 1 <= number <= 12:
+        raise HTTPException(status_code=404, detail="没有这张图")
+    return _artifact(job_id, f"step{number}.jpg", "image/jpeg", "steps_ready")
+
+
 @app.get("/v1/renders/{job_id}/image")
 def problem_image(job_id: str):
     return problem_image_at(job_id, 0)
@@ -252,6 +305,12 @@ async def worker_heartbeat(request: Request):
     return {"ok": True}
 
 
+@app.get("/v1/worker/queue", dependencies=[Depends(require_worker)])
+def worker_queue():
+    """笔记本想在用户核对题目时提前开工，先问一下有没有别人的题在排队。"""
+    return {"queued": store.queued_count()}
+
+
 @app.post("/v1/worker/claim", dependencies=[Depends(require_worker)])
 def worker_claim():
     """把最早排队的任务交给笔记本，连同题目或代码一起。"""
@@ -262,11 +321,14 @@ def worker_claim():
     directory = store.job_dir(status["id"])
     problem = directory / "problem.json"
     code = directory / "scene.py"
+    solution = directory / "solution.json"
     return {
         "id": status["id"],
         "status": status,
         "problem": json.loads(problem.read_text(encoding="utf-8")) if problem.exists() else None,
         "code": code.read_text(encoding="utf-8") if code.exists() and not problem.exists() else None,
+        # 预置例题的解析是直接存在服务器上的，笔记本要用它给解题步骤配图
+        "solution": json.loads(solution.read_text(encoding="utf-8")) if not problem.exists() and solution.exists() else None,
     }
 
 
@@ -287,7 +349,7 @@ async def worker_status(job_id: str, request: Request):
 
 @app.put("/v1/worker/jobs/{job_id}/files/{name}", dependencies=[Depends(require_worker)])
 async def worker_upload(job_id: str, name: str, request: Request):
-    if name not in _UPLOADS:
+    if name not in _UPLOADS and not _STEP_IMAGE.match(name):
         raise HTTPException(status_code=422, detail="不接受这个文件")
     if _job_status(job_id) is None:
         raise HTTPException(status_code=404, detail="任务不存在")

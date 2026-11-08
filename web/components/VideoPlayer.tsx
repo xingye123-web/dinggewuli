@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type Ref, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { formatNumber } from "@/lib/format";
 import type { Quantity, Timeline } from "@/lib/types";
 import { DownloadIcon, ExitFullscreenIcon, FullscreenIcon, NextFrameIcon, PauseIcon, PlayIcon, PrevFrameIcon } from "./Icons";
@@ -16,8 +16,8 @@ interface Props {
   videoSrc: string | null;
   /** 视频没出来时画面位置显示的进度，比如「正在渲染视频 2 / 4 段」。 */
   pending?: string;
-  /** 放在讲解原文右边的内容，也就是文字解析。 */
-  solution?: ReactNode;
+  /** 外面用来控制播放器，比如点了文字解析里的配图要跳到那一秒。 */
+  ref?: Ref<PlayerHandle>;
 }
 
 function clockText(seconds: number) {
@@ -31,14 +31,22 @@ function isTyping(target: EventTarget | null) {
   return target instanceof HTMLInputElement && target.type !== "range";
 }
 
-export default function VideoPlayer({ timeline, videoSrc, pending, solution }: Props) {
+export interface PlayerHandle {
+  /** 跳到第几秒并暂停，同时把播放器滚到屏幕中间。 */
+  seek: (seconds: number) => void;
+}
+
+export default function VideoPlayer({ timeline, videoSrc, pending, ref }: Props) {
   const video = useRef<HTMLVideoElement>(null);
   const consoleBox = useRef<HTMLElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [frame, setFrame] = useState(0);
   const [paused, setPaused] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
-  const [tab, setTab] = useState<"values" | "formulas">("values");
+  // 默认显示讲解目录；暂停后点物体会切到物理量
+  const [tab, setTab] = useState<"toc" | "values" | "formulas">("toc");
+  const tocPanel = useRef<HTMLDivElement>(null);
+  const activeItem = useRef<HTMLLIElement>(null);
   const lastFrame = Math.max(Math.round(timeline.duration * timeline.fps) - 1, 0);
 
   const quantityById = useMemo(
@@ -158,6 +166,17 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
     return () => window.removeEventListener("keydown", onKey);
   }, [frame, togglePlay, seekFrame, toggleFullscreen]);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      seek(seconds: number) {
+        seekFrame(Math.round(seconds * timeline.fps));
+        consoleBox.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      },
+    }),
+    [seekFrame, timeline.fps],
+  );
+
   function onStageClick() {
     if (selected) setSelected(null);
     else togglePlay();
@@ -176,6 +195,17 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
     if (step.t <= seconds + STEP_BOUNDARY) activeStep = index;
   });
   const showPaused = paused && !!videoSrc;
+
+  // 播放时让当前这句留在目录面板的可见范围里
+  useEffect(() => {
+    const panel = tocPanel.current;
+    const item = activeItem.current;
+    if (!panel || !item) return;
+    const top = item.offsetTop - panel.offsetTop;
+    if (top < panel.scrollTop || top + item.offsetHeight > panel.scrollTop + panel.clientHeight) {
+      panel.scrollTo({ top: Math.max(top - panel.clientHeight / 3, 0), behavior: "smooth" });
+    }
+  }, [activeStep, tab]);
   const clockQuantity = quantityById.get(timeline.clock.id);
   const allIds = timeline.quantities.map((quantity) => quantity.id);
   const selectedIds = selected ? timeline.objects[selected].quantities.filter((id) => quantityById.has(id)) : [];
@@ -322,6 +352,15 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
             <button type="button" className="ctl" onClick={() => seekFrame(frame + 1)} aria-label="下一帧">
               <NextFrameIcon />
             </button>
+            <button
+              type="button"
+              className="ctl fs"
+              onClick={toggleFullscreen}
+              aria-label={fullscreen ? "退出全屏" : "全屏"}
+              title={fullscreen ? "退出全屏（F）" : "全屏（F）"}
+            >
+              {fullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
+            </button>
             <span className="time mono">
               {clockText(seconds)} / {clockText(timeline.duration)}
             </span>
@@ -341,7 +380,7 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
             <span className="right">
               <span>
                 <kbd>空格</kbd> 播放 <kbd>←</kbd>
-                <kbd>→</kbd> 逐帧 <kbd>F</kbd> 全屏
+                <kbd>→</kbd> 逐帧
               </span>
               {videoSrc && (
                 <a href={videoSrc} download="定格物理讲解.mp4">
@@ -350,22 +389,16 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
                 </a>
               )}
             </span>
-            <button
-              type="button"
-              className="ctl fs"
-              onClick={toggleFullscreen}
-              aria-label={fullscreen ? "退出全屏" : "全屏"}
-              title={fullscreen ? "退出全屏（F）" : "全屏（F）"}
-            >
-              {fullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
-            </button>
           </div>
         </div>
 
         <aside className="readout">
           <div className="tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={tab === "toc"} onClick={() => setTab("toc")}>
+              目录
+            </button>
             <button type="button" role="tab" aria-selected={tab === "values"} onClick={() => setTab("values")}>
-              此刻的物理量
+              物理量
             </button>
             {timeline.formulas.length > 0 && (
               <button type="button" role="tab" aria-selected={tab === "formulas"} onClick={() => setTab("formulas")}>
@@ -374,7 +407,28 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
             )}
           </div>
 
-          {tab === "values" ? (
+          {tab === "toc" && (
+            <div className="panel" role="tabpanel" ref={tocPanel}>
+              <ol className="toc">
+                {timeline.steps.map((step, index) => (
+                  <li key={`${step.t}-${index}`} ref={index === activeStep ? activeItem : undefined}>
+                    <button
+                      type="button"
+                      className={index === activeStep ? "now" : ""}
+                      onClick={() => seekFrame(Math.round(step.t * timeline.fps))}
+                    >
+                      <time>{clockText(step.t).replace(/\.\d$/, "")}</time>
+                      <span>
+                        <span className="ph">{step.title}</span>
+                        {step.text}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {tab === "values" && (
             <div className="panel" role="tabpanel">
               {selected ? (
                 <>
@@ -396,7 +450,8 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
                 allIds.map((id) => row(quantityById.get(id), false))
               )}
             </div>
-          ) : (
+          )}
+          {tab === "formulas" && (
             <div className="panel" role="tabpanel">
               {timeline.formulas.map(({ expr }) => (
                 <p className="formula" key={expr}>
@@ -414,36 +469,15 @@ export default function VideoPlayer({ timeline, videoSrc, pending, solution }: P
             </div>
           )}
           <div className="panel-foot">
-            {tab === "values"
-              ? "暂停时点画面里框住的物体，它的物理量会排到最上面。"
-              : "黄色数字是这一帧的值，会随画面变化。"}
+            {tab === "toc"
+              ? "点一句话，视频跳到那里。"
+              : tab === "values"
+                ? "暂停时点画面里框住的物体，它的物理量会排到最上面。"
+                : "黄色数字是这一帧的值，会随画面变化。"}
           </div>
         </aside>
       </section>
 
-      <section className={solution ? "below" : "below single"}>
-        <div className="card">
-          <h2>讲解</h2>
-          <ol className="transcript">
-            {timeline.steps.map((step, index) => (
-              <li key={`${step.t}-${index}`}>
-                <button
-                  type="button"
-                  className={index === activeStep ? "now" : ""}
-                  onClick={() => seekFrame(Math.round(step.t * timeline.fps))}
-                >
-                  <time>{clockText(step.t).replace(/\.\d$/, "")}</time>
-                  <span>
-                    <span className="ph">{step.title}</span>
-                    {step.text}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ol>
-        </div>
-        {solution}
-      </section>
     </>
   );
 }

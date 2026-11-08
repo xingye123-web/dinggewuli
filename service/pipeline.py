@@ -9,7 +9,7 @@ import time
 
 from render.scene_check import check_code
 
-from . import deepseek, narrate, part_requests, prompts, runner, settings, store
+from . import deepseek, narrate, part_requests, prompts, runner, settings, step_frames, store
 from .deepseek import DeepSeekError
 from .narrate import NarrationError
 
@@ -94,7 +94,7 @@ def _read_problem(job_id, problem, tracker):
     return result["problem_text"], result.get("figure", "")
 
 
-def _solve(job_id, text, figure, tracker):
+def _solve(job_id, text, figure, tracker, publish=True):
     tracker.enter("solving")
     content = f"题目：{text}\n\n题图信息：{figure or '无'}"
     solution, usage = deepseek.chat_json(
@@ -103,16 +103,28 @@ def _solve(job_id, text, figure, tracker):
         effort=settings.SOLVE_EFFORT,
     )
     tracker.add_usage(usage)
-    (store.job_dir(job_id) / "solution.json").write_text(json.dumps(solution, ensure_ascii=False, indent=1), encoding="utf-8")
-    # 文字解析先给用户看，不必等视频
-    store.update_status(job_id, solution_ready=True)
+    if publish:
+        _publish_solution(job_id, solution)
     if not solution.get("answers"):
         raise PipelineStop("solving", [f"这道题没有得出答案：{solution.get('pitfall', '原因未知')}"])
     return solution
 
 
-def _author(job_id, text, figure, solution, tracker):
-    """写代码，不通过就把问题交回给模型修改。"""
+def _publish_solution(job_id, solution):
+    (store.job_dir(job_id) / "solution.json").write_text(json.dumps(solution, ensure_ascii=False, indent=1), encoding="utf-8")
+    # 文字解析先给用户看，不必等视频
+    store.update_status(job_id, solution_ready=True)
+
+
+def _accept_code(job_id, text, solution, code, attempts):
+    (store.job_dir(job_id) / "scene.py").write_text(code, encoding="utf-8")
+    waiting = part_requests.record(job_id, text, solution.get("topic", ""), code=code, attempts=attempts)
+    if waiting:
+        print(f"零件库有 {waiting} 种零件待做，见 .dev/requests/待处理.md", flush=True)
+
+
+def _author(job_id, text, figure, solution, tracker, publish=True):
+    """写代码，不通过就把问题交回给模型修改。publish 为假时只返回结果，不改任务状态。"""
     directory = store.job_dir(job_id)
     messages = [
         {"role": "system", "content": prompts.author_system(text, solution.get("topic", ""))},
@@ -127,7 +139,8 @@ def _author(job_id, text, figure, solution, tracker):
         unsupported = _UNSUPPORTED.match(reply)
         if unsupported:
             reason = unsupported.group(1).strip()
-            part_requests.record(job_id, text, solution.get("topic", ""), unsupported=reason, attempts=attempt)
+            if publish:
+                part_requests.record(job_id, text, solution.get("topic", ""), unsupported=reason, attempts=attempt)
             raise PipelineStop("unsupported", [reason])
         match = _CODE_BLOCK.search(reply)
         code = match.group(1) if match else reply
@@ -143,17 +156,72 @@ def _author(job_id, text, figure, solution, tracker):
             else:
                 problems = [str(e) for e in prepared.get("errors", [])]
         history.append({"attempt": attempt, "problems": problems})
-        store.update_status(job_id, attempts=history)
+        if publish:
+            store.update_status(job_id, attempts=history)
         if not problems:
-            (directory / "scene.py").write_text(code, encoding="utf-8")
-            waiting = part_requests.record(job_id, text, solution.get("topic", ""), code=code, attempts=attempt)
-            if waiting:
-                print(f"零件库有 {waiting} 种零件待做，见 .dev/requests/待处理.md", flush=True)
+            if publish:
+                _accept_code(job_id, text, solution, code, attempt)
             return code, prepared
 
         messages.append({"role": "assistant", "content": reply})
         messages.append({"role": "user", "content": prompts.REPAIR.format(problems="\n".join(problems))})
     raise PipelineStop("authoring", problems)
+
+
+SPECULATION = "speculation.json"
+
+
+class _QuietTracker:
+    """提前开工时用：不改任务状态，网页上仍然显示「等你核对」。"""
+
+    def enter(self, *args, **kwargs):
+        pass
+
+    def add_usage(self, usage):
+        pass
+
+
+def _queue_is_empty():
+    if settings.HUB_URL:
+        from . import hub
+
+        return hub.queue_length() == 0
+    return store.queued_count() == 0
+
+
+def _speculate(job_id, text, figure):
+    """用户核对读图结果的这段时间，按读到的题目先解题、写代码并通过检查。
+    结果只存在本机，用户确认时题目和题图都没改才用，改了就作废。
+    有别人的题在排队时不做，免得耽误别人。这里出任何错都不能影响这道题，所以全部兜住。"""
+    try:
+        if not _queue_is_empty():
+            return
+        started = time.monotonic()
+        quiet = _QuietTracker()
+        solution = _solve(job_id, text, figure, quiet, publish=False)
+        code, prepared = _author(job_id, text, figure, solution, quiet, publish=False)
+        record = {"text": text, "figure": figure, "solution": solution, "code": code, "prepared": prepared,
+                  "seconds": round(time.monotonic() - started, 1)}
+        (store.job_dir(job_id) / SPECULATION).write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+        print(f"任务 {job_id} 已提前解题并写好代码，用时 {record['seconds']} 秒", flush=True)
+    except Exception as error:  # noqa: BLE001
+        print(f"任务 {job_id} 提前开工没成功，确认后照常生成：{error}", flush=True)
+
+
+def _take_speculation(job_id, text, figure):
+    """确认后的题目和题图跟提前开工时一样，就返回 (solution, code, prepared)，否则返回 None。只用一次。"""
+    path = store.job_dir(job_id) / SPECULATION
+    if not path.exists():
+        return None
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+    finally:
+        path.unlink(missing_ok=True)
+    same = record["text"].strip() == text.strip() and (record["figure"] or "").strip() == (figure or "").strip()
+    store.update_status(job_id, speculation="used" if same else "discarded")
+    return (record["solution"], record["code"], record["prepared"]) if same else None
 
 
 def _narrate_and_render(job_id, code, prepared, tracker):
@@ -187,7 +255,9 @@ def _narrate_and_render(job_id, code, prepared, tracker):
     )
     if not rendered.get("ok"):
         raise PipelineStop(rendered.get("stage", "render"), rendered.get("errors", []))
-    tracker.enter("done", progress=None, video_ready=True)
+    # 文字解析的每一步配一张视频截图，配不上也照样完成
+    steps = step_frames.build(directory) if (directory / "solution.json").exists() else None
+    tracker.enter("done", progress=None, video_ready=True, **({"steps_ready": True} if steps else {}))
     store.update_status(
         job_id,
         total_seconds=round(time.monotonic() - tracker.started, 1),
@@ -219,11 +289,19 @@ def run_problem(job_id):
             # 读图可能读错，比如绳子段数。读错了后面全错，而且答案核对查不出来，所以先让用户确认
             text, figure = _read_problem(job_id, problem, tracker)
             tracker.enter("awaiting_confirmation", problem_text=text, figure=figure)
+            _speculate(job_id, text, figure)
             return
         text, figure = problem["text"], problem.get("figure", "")
         store.update_status(job_id, problem_text=text, figure=figure)
-        solution = _solve(job_id, text, figure, tracker)
-        code, prepared = _author(job_id, text, figure, solution, tracker)
+        reused = _take_speculation(job_id, text, figure)
+        if reused:
+            # 用户核对时已经做完了，直接接着配音和渲染
+            solution, code, prepared = reused
+            _publish_solution(job_id, solution)
+            _accept_code(job_id, text, solution, code, 1)
+        else:
+            solution = _solve(job_id, text, figure, tracker)
+            code, prepared = _author(job_id, text, figure, solution, tracker)
         _narrate_and_render(job_id, code, prepared, tracker)
 
     _guarded(job_id, work)

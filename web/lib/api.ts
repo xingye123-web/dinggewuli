@@ -1,4 +1,4 @@
-import type { JobStatus, Solution, Timeline } from "./types";
+import type { JobStatus, Solution, StepImage, Timeline } from "./types";
 
 const jobUrl = (id: string) => `/backend/renders/${id}`;
 
@@ -15,6 +15,9 @@ export const fetchSolution = (id: string) => getJson<Solution>(`${jobUrl(id)}/so
 export const fetchTimeline = (id: string) => getJson<Timeline>(`${jobUrl(id)}/timeline.json`);
 
 /** 第 index 张题目图片，从 0 开始。 */
+export const fetchSteps = (id: string) => getJson<StepImage[]>(`${jobUrl(id)}/steps.json`);
+export const stepImageUrl = (id: string, step: number) => `${jobUrl(id)}/step/${step}.jpg`;
+
 export const imageUrl = (id: string, index = 0) => `${jobUrl(id)}/images/${index}`;
 
 export const submitProblem = (text: string, imagesBase64: string[], invite: string) =>
@@ -29,6 +32,9 @@ export async function fetchWorkerOnline(): Promise<boolean> {
     return false;
   }
 }
+
+export const submitFeedback = (feedback: { text: string; contact: string; page: string; images_base64: string[] }) =>
+  post("/api/feedback", feedback);
 
 export const confirmProblem = (id: string, text: string, figure: string) =>
   post(`/api/problems/${id}/confirm`, { text, figure });

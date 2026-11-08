@@ -17,10 +17,10 @@ from pathlib import Path
 
 ARTIFACTS = Path("/var/lib/dingge/artifacts")
 EXAMPLES = {
-    "35c6978092803fcc7f82c9ea6b1664f4",
-    "6d998b970e23611c9be7274b4b131b93",
-    "7b2553bcb302cc0403044c178bfbb7de",
-    "d25214679d78908fea58bee44acd3e3c",
+    "734a37a1bb4c64d3f0ef390aff702b65",
+    "2a6ee8ace474374e0d6e7a6f9c1a4a0c",
+    "8df85433a658c167a197ce5985b6b6cd",
+    "ea9c65e237de622cc1cc9570dd1eb362",
 }
 BEIJING = datetime.timezone(datetime.timedelta(hours=8))
 LOG_LINE = re.compile(r'^(\S+) .*INFO:\s+([\d.]+):\d+ - "(\w+) (\S+)')

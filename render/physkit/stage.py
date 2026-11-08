@@ -4,7 +4,7 @@ import re
 
 from manim import MarkupText, Rectangle, Text, VGroup
 
-from .parts import CAPTION_TOP, FONT, INK, ROPE, STAGE_RIGHT, Block, Part, Plot, Rope, _point
+from .parts import _BACKGROUND, CAPTION_TOP, FONT, INK, ROPE, STAGE_RIGHT, Block, Part, Plot, Rope, _point
 from .timeline import SceneError
 
 FRAME_WIDTH = 8 * 16 / 9
@@ -19,10 +19,11 @@ _EDGE_MARGIN = 0.05
 
 
 class _Board(Part):
-    """画面右上方的板书，只显示最新的几行，最新一条算式高亮。
+    """画面右上方的板书，最新一条算式高亮。
 
     所有行用同一个字号。一条算式太长时，在等号或中文逗号处换行，续行缩进，不再整行缩小，
     否则长的算式字小、短的字大，看起来很乱。
+    题目有好几问时按问分开写，每问前标 (1)、(2)；写不下时擦掉前面的问，只留当前这一问。
     """
 
     FONT_SIZE = 25
@@ -58,25 +59,57 @@ class _Board(Part):
             rows.append(row)
         return rows
 
+    def _questions(self):
+        return {line["question"] for line in self.timeline.board_lines}
+
     def _rows_for(self, index):
+        """一行板书拆成的几行。题目有好几问时，每一问的第一行前面标上 (1)、(2)。"""
         if index not in self._rows:
-            self._rows[index] = self._split(self.timeline.board_lines[index]["text"])
+            line = self.timeline.board_lines[index]
+            text = line["text"]
+            first_of_question = index == 0 or self.timeline.board_lines[index - 1]["question"] != line["question"]
+            if len(self._questions()) > 1 and first_of_question:
+                text = f"({line['question']}) {text}"
+            self._rows[index] = self._split(text)
         return self._rows[index]
+
+    def _visible(self, count):
+        """要显示哪些行：当前这一问的全部，再往前补完整的上一问，写不下就把上一问擦掉。"""
+        runs = []  # 按出现顺序，连续属于同一问的几行算一段
+        for index, line in enumerate(self.timeline.board_lines[:count]):
+            if runs and runs[-1][0] == line["question"]:
+                runs[-1][1].append(index)
+            else:
+                runs.append((line["question"], [index]))
+
+        def rows_of(indices):
+            return [(row, index, k) for index in indices for k, row in enumerate(self._rows_for(index))]
+
+        rows = rows_of(runs[-1][1])
+        if len(rows) > BOARD_MAX_LINES:
+            return rows[-BOARD_MAX_LINES:]
+        for _, indices in reversed(runs[:-1]):
+            earlier = rows_of(indices)
+            if len(rows) + len(earlier) > BOARD_MAX_LINES:
+                break
+            rows = earlier + rows
+        return rows
 
     def _group(self, count):
         if count not in self._groups:
-            rows = [(row, index, k) for index in range(count) for k, row in enumerate(self._rows_for(index))]
             group = VGroup()
-            for position, (content, index, k) in enumerate(rows[-BOARD_MAX_LINES:]):
-                text = self._text(content, ROPE if index == count - 1 else INK)
-                indent = self.INDENT if k > 0 else 0.0
-                if text.width > BOARD_WIDTH - indent:
-                    # 一个式子本身就放不下时才缩小，正常情况下不会发生
-                    text.scale((BOARD_WIDTH - indent) / text.width)
-                text.move_to(
-                    _point(BOARD_LEFT + indent, BOARD_TOP - BOARD_LINE_HEIGHT * position), aligned_edge=_point(-1, 0)
-                )
-                group.add(text)
+            if count:
+                for position, (content, index, k) in enumerate(self._visible(count)):
+                    text = self._text(content, ROPE if index == count - 1 else INK)
+                    indent = self.INDENT if k > 0 else 0.0
+                    if text.width > BOARD_WIDTH - indent:
+                        # 一个式子本身就放不下时才缩小，正常情况下不会发生
+                        text.scale((BOARD_WIDTH - indent) / text.width)
+                    text.move_to(
+                        _point(BOARD_LEFT + indent, BOARD_TOP - BOARD_LINE_HEIGHT * position),
+                        aligned_edge=_point(-1, 0),
+                    )
+                    group.add(text)
             self._groups[count] = group
         return self._groups[count]
 
@@ -113,7 +146,7 @@ class _Caption(Part):
 class Stage:
     """一道题的画面。按 add 的先后顺序绘制，后加的盖在上面。板书和字幕由系统自动加上。"""
 
-    def __init__(self, timeline, background="#10151C"):
+    def __init__(self, timeline, background=_BACKGROUND):
         self.timeline = timeline
         self.background = background
         self.parts = []

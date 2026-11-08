@@ -20,7 +20,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         <section className="hero">
           <div>
             <p className="kicker">初中物理 · 带配音的讲解视频</p>
-            <h1>
+            <h1 className="hero-title">
               把物理过程
               <br />
               按下暂停

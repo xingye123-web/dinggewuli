@@ -326,17 +326,34 @@ class Timeline:
         self._caption_times = [caption["t"] for caption in self.captions]
 
     def _build_board(self):
+        """板书按「问」分组：算出第几问答案的那一行属于第几问，前面的推导行归到它后面最近的那一问。
+        不用模型另外标注。"""
         self.board_lines = []
+        answer_ids = [answer["id"] for answer in self.answers]
         for phase in self.phases:
             index = self.frame_at(phase.end.seconds)
             for expr in phase.boards:
+                # 这一行算出的是最后一个等号右边的量。式子中间引用的前一问答案不算
+                slots = [match.group(1) for match in _SLOT.finditer(expr.rsplit("=", 1)[-1])]
+                produced = next((id for id in reversed(slots) if id in answer_ids), None)
+                own = answer_ids.index(produced) + 1 if produced else None
                 self.board_lines.append(
                     {
                         "expr": expr,
                         "t": phase.begin,
+                        "t_end": phase.begin + phase.seconds,
+                        "question": own,
                         "text": _SLOT.sub(lambda m: self._spoken_value(m.group(1), index, board_number), expr),
                     }
                 )
+        following = None
+        for line in reversed(self.board_lines):
+            following = line["question"] or following
+            line["question"] = following
+        previous = 1
+        for line in self.board_lines:
+            line["question"] = line["question"] or previous
+            previous = line["question"]
         self._board_times = [line["t"] for line in self.board_lines]
 
     def caption_at(self, index):
@@ -417,7 +434,7 @@ class Timeline:
             },
             "quantities": [{k: q[k] for k in ("id", "symbol", "name", "unit", "digits")} for q in self.quantities],
             "constants": self.constants,
-            "formulas": [{"expr": line["expr"]} for line in self.board_lines],
+            "formulas": [{k: line[k] for k in ("expr", "t", "t_end", "question")} for line in self.board_lines],
             "phases": [{"label": p.label, "t0": p.begin, "t1": p.begin + p.seconds} for p in self.phases],
             "events": [{"t": event["moment"].seconds, "label": event["label"]} for event in self.events],
             "steps": [
