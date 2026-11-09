@@ -11,6 +11,12 @@ const DEMO_BOXES = [
   { left: 27.78, top: 40.94, width: 2.81, height: 18.75 },
 ];
 
+const HOW = [
+  { title: "输入题目", text: "打字、粘贴截图或拍照都行。图片题读完后，会请你对照原图核对一遍。" },
+  { title: "等三五分钟", text: "先出文字解析，再出带配音的讲解视频。答案会和视频里算出的结果互相核对。" },
+  { title: "暂停读数", text: "拖进度条或逐帧前进，点画面里的物体，只看它的物理量和代入计算。" },
+];
+
 export default async function HomePage({ searchParams }: { searchParams: Promise<{ text?: string | string[] }> }) {
   const { text } = await searchParams;
   return (
@@ -19,7 +25,11 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       <main className="wrap">
         <section className="hero">
           <div>
-            <p className="kicker">初中物理 · 带配音的讲解视频</p>
+            <p className="kicker">
+              <span className="kicker-line" aria-hidden="true" />
+              初中物理 · 带配音的讲解视频
+              <span className="kicker-chip">可暂停</span>
+            </p>
             <h1 className="hero-title">
               把物理过程
               <br />
@@ -86,7 +96,13 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
         {EXAMPLES.length > 0 && (
           <section className="section" id="examples">
             <div className="section-head">
-              <h2>看看例题</h2>
+              <div>
+                <p className="eyebrow">
+                  <span className="kicker-line" aria-hidden="true" />
+                  例题库 <em>EXAMPLES</em>
+                </p>
+                <h2 className="section-title">看看例题</h2>
+              </div>
               <p>都已生成好，点开就能看</p>
             </div>
             <div className="examples">
@@ -95,11 +111,10 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
                   <span className="thumb vf">
                     {/* eslint-disable-next-line @next/next/no-img-element -- 静态缩略图 */}
                     <img src={example.image} alt="" />
+                    <span className="duration mono">{example.length}</span>
                   </span>
                   <div className="example-body">
-                    <div className="topic">
-                      {example.topic} <span className="mono">{example.length}</span>
-                    </div>
+                    <div className="topic">{example.topic}</div>
                     <p>{example.text}</p>
                   </div>
                 </a>
@@ -110,21 +125,25 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
 
         <section className="section" id="how">
           <div className="section-head">
-            <h2>怎么用</h2>
+            <div>
+              <p className="eyebrow">
+                <span className="kicker-line" aria-hidden="true" />
+                使用方式 <em>HOW IT WORKS</em>
+              </p>
+              <h2 className="section-title">怎么用</h2>
+            </div>
           </div>
           <ol className="steps3">
-            <li>
-              <b>输入题目</b>
-              <p>打字、粘贴截图或拍照都行。图片题读完后，会请你对照原图核对一遍。</p>
-            </li>
-            <li>
-              <b>等三五分钟</b>
-              <p>先出文字解析，再出带配音的讲解视频。答案会和视频里算出的结果互相核对。</p>
-            </li>
-            <li>
-              <b>暂停读数</b>
-              <p>拖进度条或逐帧前进，点画面里的物体，只看它的物理量和代入计算。</p>
-            </li>
+            {HOW.map((step, index) => (
+              <li key={step.title}>
+                <span className="step-no">
+                  0{index + 1}
+                  <sup>/{HOW.length}</sup>
+                </span>
+                <b>{step.title}</b>
+                <p>{step.text}</p>
+              </li>
+            ))}
           </ol>
         </section>
       </main>

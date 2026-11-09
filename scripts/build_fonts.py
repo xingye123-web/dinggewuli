@@ -22,7 +22,7 @@ TEXT = ROOT / "web" / "fonts" / "serif-text.txt"
 OUT = ROOT / "web" / "public" / "fonts"
 FAMILY = "Dingge Serif"
 GREEK = "αβγδεηθλμνπρστφωΔΘΛΣΦΩ"
-HERO = "把物理过程按下暂停"
+HERO = "把物理过程按下暂停看看例题怎么用0123/"
 LATIN = string.ascii_letters + string.digits + " .,:;!?()[]/+-=×÷−%'\""
 
 

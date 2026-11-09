@@ -74,6 +74,14 @@ body {
     linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
     var(--paper);
   -webkit-font-smoothing: antialiased;
+  /* 页脚贴在底部：内容少的页面也不会让页脚浮在半空 */
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+body > main {
+  flex: 1 0 auto;
 }
 
 a {
@@ -416,12 +424,56 @@ input:focus {
   letter-spacing: 0.01em;
 }
 
-.kicker {
+.kicker,
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0 0 14px;
   color: var(--orange-ink);
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.08em;
+}
+
+.kicker-line {
+  width: 40px;
+  height: 2px;
+  background: var(--orange-ink);
+}
+
+.kicker-chip {
+  padding: 1px 8px;
+  color: var(--orange-ink);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  background: rgb(255 122 89 / 0.14);
+  border-radius: 4px;
+}
+
+.eyebrow {
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.eyebrow .kicker-line {
+  width: 28px;
+}
+
+.eyebrow em {
+  color: #8f857c;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+}
+
+.section-title {
+  font-family: "Dingge Serif Heavy", var(--serif);
+  font-size: 40px;
+  font-weight: 900;
+  line-height: 1.2;
 }
 
 .lede {
@@ -601,10 +653,13 @@ input:focus {
 }
 
 .demo figcaption {
-  margin-top: 14px;
-  color: var(--ink-3);
-  font-size: 13px;
+  margin-top: 16px;
+  padding-left: 12px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  border-left: 3px solid var(--orange-deep);
 }
+
 
 .strip {
   display: grid;
@@ -669,9 +724,9 @@ input:focus {
 
 .section-head {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .section-head p {
@@ -725,16 +780,21 @@ input:focus {
 }
 
 .example-body .topic {
-  display: flex;
-  justify-content: space-between;
   color: var(--orange-ink);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
 }
 
-.example-body .topic span {
-  color: var(--ink-3);
-  font-weight: 400;
+/* 时长贴在缩略图右下角，像视频网站那样 */
+.example .duration {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 1px 7px;
+  color: #fff;
+  font-size: 12px;
+  background: rgb(16 21 28 / 0.78);
+  border-radius: 4px;
 }
 
 .example-body p {
@@ -756,41 +816,83 @@ input:focus {
 }
 
 .steps3 li {
-  padding: 0 28px 0 0;
+  padding: 4px 36px 8px 0;
   list-style: none;
 }
 
 .steps3 li + li {
-  padding-left: 28px;
+  padding-left: 36px;
   border-left: 1px solid var(--rule);
+}
+
+/* 大号序号 01，右上角小字 /3 */
+.step-no {
+  display: block;
+  margin-bottom: 10px;
+  font-family: "Dingge Serif Heavy", var(--serif);
+  font-size: 46px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.step-no sup {
+  margin-left: 2px;
+  color: var(--orange-deep);
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 700;
+  vertical-align: 26px;
 }
 
 .steps3 b {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   font-family: var(--serif);
-  font-size: 18px;
-}
-
-.steps3 b::before {
-  counter-increment: step;
-  content: counter(step);
-  display: inline-grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  margin-right: 10px;
-  color: #fff;
-  font-family: var(--mono);
-  font-size: 13px;
-  background: var(--orange-deep);
-  border-radius: 50%;
-  vertical-align: 2px;
+  font-size: 20px;
 }
 
 .steps3 p {
   margin: 0;
   color: var(--ink-2);
+  line-height: 1.8;
+}
+
+/* 底部横栏：和顶栏同一个底色，字全是灰的 */
+.site-footer {
+  margin-top: 24px;
+  background: var(--topbar);
+  border-top: 1px solid #e8d3c8;
+}
+
+.site-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 18px 24px;
+  color: #9a8f88;
+  font-size: 13px;
+}
+
+.footer-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.18em;
+}
+
+.footer-mark i {
+  width: 8px;
+  height: 8px;
+  background: var(--orange-ink);
+  border-radius: 50%;
+}
+
+.footer-slogan {
+  letter-spacing: 0.08em;
 }
 
 /* 讲解页：题目 */
@@ -1898,9 +2000,14 @@ kbd {
     gap: 18px;
   }
 
+  .steps3 li,
   .steps3 li + li {
-    padding-left: 0;
+    padding: 0;
     border-left: 0;
+  }
+
+  .section-title {
+    font-size: 32px;
   }
 
   .nav {
@@ -1915,6 +2022,10 @@ kbd {
 }
 
 @media (max-width: 520px) {
+  .kicker {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
   .wrap,
   .topbar-inner {
     padding: 0 16px;
