@@ -4,7 +4,7 @@ import re
 
 from manim import MarkupText, Rectangle, Text, VGroup
 
-from .parts import _BACKGROUND, CAPTION_TOP, FONT, INK, ROPE, STAGE_RIGHT, Block, Part, Plot, Rope, _point
+from .parts import _BACKGROUND, CAPTION_TOP, FONT, INK, ROPE, STAGE_RIGHT, Block, Part, Plot, Rope, _Component, _markup, _point
 from .timeline import SceneError
 
 FRAME_WIDTH = 8 * 16 / 9
@@ -274,34 +274,67 @@ class Stage:
             found.append(f"第 {index} 帧：{label} 进入了底部字幕区，下边界 y={bottom:.2f}，不能低于 {CAPTION_TOP}")
         return found
 
-    @staticmethod
-    def _overlaps(texts, index):
+    def _describe(self, owner, text):
+        """报错里说清是哪个零件的文字、在哪，模型才知道往哪挪。只说「重叠」它只能盲改。"""
+        part = self.all_parts[owner]
+        name = "板书" if isinstance(part, _Board) else "字幕" if isinstance(part, _Caption) else f"{type(part).__name__} #{owner}"
+        left, bottom, right, top = _box(text)
+        return f"「{_plain(text)}」（{name}，x {left:.2f}~{right:.2f}，y {bottom:.2f}~{top:.2f}）"
+
+    def _overlaps(self, texts, index):
         found = []
         for i, (owner_a, a) in enumerate(texts):
             for owner_b, b in texts[i + 1 :]:
                 if owner_a == owner_b:
                     continue
-                if (
-                    a.get_left()[0] < b.get_right()[0]
-                    and b.get_left()[0] < a.get_right()[0]
-                    and a.get_bottom()[1] < b.get_top()[1]
-                    and b.get_bottom()[1] < a.get_top()[1]
-                ):
-                    found.append(f"第 {index} 帧：文字「{a.text}」和「{b.text}」重叠")
+                a_left, a_bottom, a_right, a_top = _box(a)
+                b_left, b_bottom, b_right, b_top = _box(b)
+                across = min(a_right, b_right) - max(a_left, b_left)
+                up = min(a_top, b_top) - max(a_bottom, b_bottom)
+                if across > 0 and up > 0:
+                    parts = self.all_parts
+                    circuit = any(isinstance(parts[o], _Component) for o in (owner_a, owner_b))
+                    found.append(
+                        f"第 {index} 帧：文字{self._describe(owner_a, a)}和{self._describe(owner_b, b)}重叠，"
+                        f"重叠部分宽 {across:.2f}、高 {up:.2f}。把其中一段左右挪开至少 {across + 0.1:.2f}，"
+                        f"或上下挪开至少 {up + 0.1:.2f}" + ("；电路元件的标签也可以改 text_side 换到另一边" if circuit else "")
+                    )
         return found
 
     def _crossings(self, texts, f, index):
         """文字压在容器壁、物块边框这些线上时，读起来会很吃力。"""
         found = []
         for number, part in enumerate(self.parts):
-            for x0, y0, x1, y1 in part.edges(f):
-                for owner, text in texts:
-                    if owner == number:
-                        continue
-                    box = (text.get_left()[0], text.get_bottom()[1], text.get_right()[0], text.get_top()[1])
-                    if _segment_hits_box(x0, y0, x1, y1, box):
-                        found.append(f"第 {index} 帧：文字「{text.text}」压在 {type(part).__name__} #{number} 的边线上")
+            edges = part.edges(f)
+            for owner, text in texts:
+                if owner == number:
+                    continue
+                hits = [edge for edge in edges if _segment_hits_box(*edge, _box(text))]
+                if not hits:
+                    continue
+                # 一段文字压住物块的几条边时只报一次，给出被压住的线所在的范围
+                if len(hits) == 1:
+                    x0, y0, x1, y1 = hits[0]
+                    where = f"这段线从 ({x0:.2f}, {y0:.2f}) 到 ({x1:.2f}, {y1:.2f})"
+                else:
+                    xs = [x for x0, _, x1, _ in hits for x in (x0, x1)]
+                    ys = [y for _, y0, _, y1 in hits for y in (y0, y1)]
+                    where = f"压住了 {len(hits)} 条线，范围 x {min(xs):.2f}~{max(xs):.2f}，y {min(ys):.2f}~{max(ys):.2f}"
+                found.append(
+                    f"第 {index} 帧：文字{self._describe(owner, text)}压在 {type(part).__name__} #{number} "
+                    f"的边线上，{where}。把文字整个挪到线的一侧，离线至少 0.3"
+                )
         return found
+
+
+def _box(text):
+    return text.get_left()[0], text.get_bottom()[1], text.get_right()[0], text.get_top()[1]
+
+
+def _plain(text):
+    """报错里显示文字本来的样子，去掉 <sub> 这类标签和转义。"""
+    content = re.sub(r"</?(?:sub|sup)>", "", getattr(text, "text", "") or "")
+    return content.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
 
 def _segment_hits_box(x0, y0, x1, y1, box):
@@ -324,13 +357,3 @@ def _segment_hits_box(x0, y0, x1, y1, box):
     return True
 
 
-_TAG = re.compile(r"(</?(?:sub|sup)>)")
-
-
-def _markup(text):
-    """板书只认 <sub> 和 <sup>，其余的 <、>、& 都当普通字符，比如 F1 < F2。"""
-    pieces = _TAG.split(text)
-    return "".join(
-        piece if _TAG.fullmatch(piece) else piece.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        for piece in pieces
-    )

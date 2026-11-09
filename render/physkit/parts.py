@@ -4,11 +4,12 @@
 """
 
 import os
+import re
 
 import numpy as np
 import math
 
-from manim import Arc, Arrow, Axes, Circle, DashedLine, Dot, Line, Polygon, Rectangle, Text, VGroup, VMobject
+from manim import Arc, Arrow, Axes, Circle, DashedLine, Dot, Line, MarkupText, Polygon, Rectangle, Text, VGroup, VMobject
 
 from .numbers import needs_scientific, scientific
 
@@ -58,7 +59,23 @@ def _text_fit_problems(content, label, width, height):
     return []
 
 
+_TAG = re.compile(r"(</?(?:sub|sup)>)")
+
+
+def _markup(text):
+    """只认 <sub> 和 <sup>，其余的 <、>、& 都当普通字符，比如 F1 < F2。"""
+    pieces = _TAG.split(text)
+    return "".join(
+        piece if _TAG.fullmatch(piece) else piece.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        for piece in pieces
+    )
+
+
 def _text(content, size, color):
+    """零件标签和 Readout 也认 <sub>、<sup>，和板书一样。不带标签的仍用 Text，排版不变。"""
+    content = str(content)
+    if _TAG.search(content):
+        return MarkupText(_markup(content), font=FONT, font_size=size, color=color)
     return Text(content, font=FONT, font_size=size, color=color)
 
 
