@@ -12,30 +12,30 @@ export interface Example {
 
 const ALL: Example[] = [
   {
-    id: "734a37a1bb4c64d3f0ef390aff702b65",
+    id: "18558d3d76bd8be66bfb5f14a6ae5092",
     topic: "滑轮组",
-    length: "0:59",
+    length: "1:42",
     text: "用滑轮组将重 240 N 的物体在 10 s 内匀速提升 2 m，求有用功、功率、机械效率和动滑轮重。",
     image: "/examples/pulley_n3.jpg",
   },
   {
-    id: "2a6ee8ace474374e0d6e7a6f9c1a4a0c",
+    id: "13d346704e164697e8337db7ba698420",
     topic: "浮力",
-    length: "0:56",
+    length: "1:48",
     text: "弹簧测力计挂着圆柱体缓慢浸入水中，求浮力、圆柱体密度和下表面受到的压强。",
     image: "/examples/buoyancy.jpg",
   },
   {
-    id: "8df85433a658c167a197ce5985b6b6cd",
+    id: "b9322ec765131ab70fa978efe5b8e8e4",
     topic: "斜面",
-    length: "0:45",
+    length: "1:26",
     text: "沿斜面把 500 N 的物体匀速拉到顶端，求有用功、功率、机械效率和摩擦力。",
     image: "/examples/incline.jpg",
   },
   {
-    id: "ea9c65e237de622cc1cc9570dd1eb362",
+    id: "6c552731efd1b41616d891a6f98dd314",
     topic: "杠杆",
-    length: "0:51",
+    length: "1:36",
     text: "杠杆一端挂 30 N 的物体，求平衡时的动力，再把物体撬高 0.1 m，求动力做的功。",
     image: "/examples/lever.jpg",
   },

@@ -21,6 +21,15 @@ EXAMPLES = {
     "2a6ee8ace474374e0d6e7a6f9c1a4a0c",
     "8df85433a658c167a197ce5985b6b6cd",
     "ea9c65e237de622cc1cc9570dd1eb362",
+    # 2026-11-16 按读题、分问讲解的新结构重新生成
+    "18558d3d76bd8be66bfb5f14a6ae5092",
+    "141dc9b264c5919610bd46f9e159f614",
+    "10fc1fc70697a6406286b1ce358312c2",
+    "2f0d5e84ad4736658f54775e8f35f100",
+    # 浮力、斜面、杠杆示例标上第几问后再生成一次
+    "13d346704e164697e8337db7ba698420",
+    "b9322ec765131ab70fa978efe5b8e8e4",
+    "6c552731efd1b41616d891a6f98dd314",
 }
 BEIJING = datetime.timezone(datetime.timedelta(hours=8))
 LOG_LINE = re.compile(r'^(\S+) .*INFO:\s+([\d.]+):\d+ - "(\w+) (\S+)')
