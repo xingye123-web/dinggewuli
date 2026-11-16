@@ -12,7 +12,14 @@ timeline = Timeline(
     "求：(1) 圆柱体受到的最大浮力；(2) 完全浸没时测力计的示数；(3) 圆柱体的密度；(4) 刚好完全浸没时下表面受到水的压强。",
     ["缓慢匀速下降", "水面高度变化忽略不计", "g = 10 N/kg"],
 )
-intro = timeline.phase("审题")
+
+# 读题时用笔标出的重要条件，按在题目里出现的顺序写
+timeline.mark("12 N")
+timeline.mark("40 cm²")
+timeline.mark("20 cm")
+timeline.mark("缓慢匀速下降", "underline")
+timeline.mark("水面高度变化忽略不计", "check")
+intro = timeline.phase("分析过程")
 above = timeline.phase("未接触水面", min_seconds=2)
 entering = timeline.phase("逐渐浸入", min_seconds=6)
 pressure = timeline.phase("求压强和密度")

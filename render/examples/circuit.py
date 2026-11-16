@@ -8,11 +8,18 @@ timeline = Timeline(
     "滑片从阻值最小端移到最大端。求：(1) 滑动变阻器接入 20 Ω 时电路中的电流；(2) 此时 R1 两端的电压；(3) 此时 R1 的电功率。",
     ["电源电压不变"],
 )
-intro = timeline.phase("审题")
-slide = timeline.phase("移动滑片", min_seconds=6)
-current = timeline.phase("求电流")
-voltage = timeline.phase("求电压")
-power = timeline.phase("求电功率")
+
+# 读题时用笔标出的重要条件，按在题目里出现的顺序写
+timeline.mark("10 Ω")
+timeline.mark("20 Ω")
+timeline.mark("串联", "underline")
+timeline.mark("6 V")
+timeline.mark("电流表测电路中的电流", "underline")
+intro = timeline.phase("分析过程", question=1)
+slide = timeline.phase("移动滑片", min_seconds=6, question=1)
+current = timeline.phase("求电流", question=1)
+voltage = timeline.phase("求电压", question=2)
+power = timeline.phase("求电功率", question=3)
 
 timeline.quantity("R2", "R<sub>2</sub>", "变阻器接入的电阻", "Ω", 2, lambda f: R2_MAX * slide.progress(f))
 timeline.quantity("U", "U", "电源电压", "V", 0, U)

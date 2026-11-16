@@ -6,8 +6,10 @@ Python 的静态检查总有办法绕过，真正的隔离靠渲染容器。
 """
 
 import ast
+import re
 
 MAX_BYTES = 40_000
+_DUNDER = re.compile(r"__[A-Za-z][A-Za-z0-9_]*__")
 BANNED_NAMES = {
     "__import__", "breakpoint", "compile", "delattr", "dir", "eval", "exec", "exit", "getattr", "globals",
     "hasattr", "help", "input", "locals", "memoryview", "object", "open", "quit", "setattr", "super", "type", "vars",
@@ -58,8 +60,9 @@ def check_code(code):
             if node.attr.startswith("_") or node.attr in BANNED_ATTRIBUTES:
                 report(node, f"不允许访问属性 {node.attr}")
         elif isinstance(node, ast.Constant):
-            if isinstance(node.value, (str, bytes)) and ("__" in str(node.value)):
-                report(node, "字符串里不允许出现双下划线")
+            # 拦的是 __class__ 这类特殊名字；填空题原文里的横线 ____ 是正常文字
+            if isinstance(node.value, (str, bytes)) and _DUNDER.search(str(node.value)):
+                report(node, "字符串里不允许出现 __xxx__ 这样的特殊名字")
         elif isinstance(node, (ast.FunctionDef, ast.arg, ast.keyword, ast.alias)):
             name = getattr(node, "name", None) or getattr(node, "arg", None)
             if name and name.startswith("_"):

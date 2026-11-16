@@ -2,38 +2,41 @@
 
 import re
 
-from manim import MarkupText, Rectangle, Text, VGroup
+from manim import MarkupText, Rectangle, RoundedRectangle, Text, VGroup
 
 from .parts import _BACKGROUND, CAPTION_TOP, FONT, INK, ROPE, STAGE_RIGHT, Block, Part, Plot, Rope, _Component, _markup, _point
-from .timeline import SceneError
+from .lesson import ProblemCard
+from .timeline import ERASE_HOLD, ERASE_SECONDS, SceneError
 
 FRAME_WIDTH = 8 * 16 / 9
 FRAME_HEIGHT = 8.0
 BOARD_LEFT = 0.95
-BOARD_TOP = 3.65
 BOARD_WIDTH = 5.95
-BOARD_LINE_HEIGHT = 0.56
-BOARD_MAX_LINES = 6
 CAPTION_WIDTH = 13.4
 _EDGE_MARGIN = 0.05
 
 
 class _Board(Part):
-    """画面右上方的板书，最新一条算式高亮。
+    """右侧的板书，接在题目小图下面，只写当前这一问，最新一条算式高亮。
 
     所有行用同一个字号。一条算式太长时，在等号或中文逗号处换行，续行缩进，不再整行缩小，
-    否则长的算式字小、短的字大，看起来很乱。
-    题目有好几问时按问分开写，每问前标 (1)、(2)；写不下时擦掉前面的问，只留当前这一问。
+    否则长的算式字小、短的字大，看起来很乱。每一行逐字写出；一问讲完后板擦从左往右擦掉，
+    再讲下一问。这一问写不下时，最早的几行往上移出去。
     """
 
     FONT_SIZE = 25
     INDENT = 0.45
+    LINE_HEIGHT = 0.52
 
-    def __init__(self, timeline):
+    def __init__(self, timeline, card, has_plot):
         super().__init__()
         self.timeline = timeline
-        self._groups = {}
+        self.card = card
+        self.top = card.thumb_bottom - 0.42
+        floor = 0.3 if has_plot else -2.9  # 有坐标图时不能写到图上去
+        self.max_lines = max(2, int((self.top - floor) / self.LINE_HEIGHT) + 1)
         self._rows = {}
+        self._cache = {}
 
     def _text(self, content, color=INK):
         return MarkupText(_markup(content), font=FONT, font_size=self.FONT_SIZE, color=color)
@@ -59,62 +62,78 @@ class _Board(Part):
             rows.append(row)
         return rows
 
-    def _questions(self):
-        return {line["question"] for line in self.timeline.board_lines}
-
     def _rows_for(self, index):
         """一行板书拆成的几行。题目有好几问时，每一问的第一行前面标上 (1)、(2)。"""
         if index not in self._rows:
-            line = self.timeline.board_lines[index]
+            lines = self.timeline.board_lines
+            line = lines[index]
             text = line["text"]
-            first_of_question = index == 0 or self.timeline.board_lines[index - 1]["question"] != line["question"]
-            if len(self._questions()) > 1 and first_of_question:
+            first_of_question = index == 0 or lines[index - 1]["question"] != line["question"]
+            if self.timeline.question_count > 1 and first_of_question:
                 text = f"({line['question']}) {text}"
             self._rows[index] = self._split(text)
         return self._rows[index]
 
-    def _visible(self, count):
-        """要显示哪些行：当前这一问的全部，再往前补完整的上一问，写不下就把上一问擦掉。"""
-        runs = []  # 按出现顺序，连续属于同一问的几行算一段
-        for index, line in enumerate(self.timeline.board_lines[:count]):
-            if runs and runs[-1][0] == line["question"]:
-                runs[-1][1].append(index)
-            else:
-                runs.append((line["question"], [index]))
-
-        def rows_of(indices):
-            return [(row, index, k) for index in indices for k, row in enumerate(self._rows_for(index))]
-
-        rows = rows_of(runs[-1][1])
-        if len(rows) > BOARD_MAX_LINES:
-            return rows[-BOARD_MAX_LINES:]
-        for _, indices in reversed(runs[:-1]):
-            earlier = rows_of(indices)
-            if len(rows) + len(earlier) > BOARD_MAX_LINES:
-                break
-            rows = earlier + rows
-        return rows
-
-    def _group(self, count):
-        if count not in self._groups:
-            group = VGroup()
-            if count:
-                for position, (content, index, k) in enumerate(self._visible(count)):
-                    text = self._text(content, ROPE if index == count - 1 else INK)
-                    indent = self.INDENT if k > 0 else 0.0
-                    if text.width > BOARD_WIDTH - indent:
-                        # 一个式子本身就放不下时才缩小，正常情况下不会发生
-                        text.scale((BOARD_WIDTH - indent) / text.width)
-                    text.move_to(
-                        _point(BOARD_LEFT + indent, BOARD_TOP - BOARD_LINE_HEIGHT * position),
-                        aligned_edge=_point(-1, 0),
-                    )
-                    group.add(text)
-            self._groups[count] = group
-        return self._groups[count]
+    def _build(self, shown):
+        """当前这一问已经出现的几行，返回整组文字和每行属于第几条板书。"""
+        rows = [(content, index, k) for index in shown for k, content in enumerate(self._rows_for(index))]
+        rows = rows[-self.max_lines:]
+        group, owners = VGroup(), []
+        for position, (content, index, k) in enumerate(rows):
+            text = self._text(content, ROPE if index == shown[-1] else INK)
+            indent = self.INDENT if k > 0 else 0.0
+            if text.width > BOARD_WIDTH - indent:
+                # 一个式子本身就放不下时才缩小，正常情况下不会发生
+                text.scale((BOARD_WIDTH - indent) / text.width)
+            text.move_to(_point(BOARD_LEFT + indent, self.top - self.LINE_HEIGHT * position), aligned_edge=_point(-1, 0))
+            group.add(text)
+            owners.append(index)
+        return group, owners
 
     def draw(self, f):
-        return self._group(self.timeline.board_count_at(f.index))
+        t = f.clock
+        timeline = self.timeline
+        if self.card.alpha(t) > 0:
+            return VGroup()
+        question = timeline.question_at(t)
+        lines = timeline.board_lines
+        shown = [i for i, line in enumerate(lines) if line["question"] == question and line["t"] <= t + 1e-9]
+        if question is None or not shown:
+            return VGroup()
+        phase = timeline.phase_at(t)
+        erasing = phase.kind == "erase" and t >= phase.begin + ERASE_HOLD
+        writing = [i for i in shown if t < lines[i]["t"] + lines[i]["reveal"]]
+        if not erasing and not writing:
+            key = (question, len(shown))
+            if key not in self._cache:
+                self._cache[key] = self._build(shown)[0]
+            return self._cache[key].copy()
+
+        group, owners = self._build(shown)
+        for index in writing:
+            # 逐字写出：每个字在轮到它时淡入
+            glyphs = [g for text, owner in zip(group, owners) if owner == index for g in text.submobjects]
+            reached = (t - lines[index]["t"]) / lines[index]["reveal"] * len(glyphs)
+            for number, glyph in enumerate(glyphs):
+                glyph.set_opacity(min(max(reached - number, 0.0), 1.0))
+        if erasing:
+            progress = min(max((t - phase.begin - ERASE_HOLD) / ERASE_SECONDS, 0.0), 1.0)
+            progress = progress * progress * (3 - 2 * progress)
+            left, right = BOARD_LEFT - 0.5, BOARD_LEFT + BOARD_WIDTH + 0.5
+            x = left + (right - left) * progress
+            for text in group:
+                for glyph in text.submobjects:
+                    passed = x - glyph.get_center()[0]
+                    glyph.set_opacity(min(max(1 - passed / 0.3, 0.0), 1.0))
+            height = group.height + 0.4
+            center_y = group.get_center()[1]
+            group.add(
+                RoundedRectangle(corner_radius=0.06, width=0.36, height=height, stroke_width=0,
+                                 fill_color="#8C5E3C", fill_opacity=1).move_to(_point(x - 0.06, center_y)),
+                Rectangle(width=0.12, height=height - 0.06, stroke_width=0, fill_color="#D9D3C5",
+                          fill_opacity=1).move_to(_point(x + 0.18, center_y)),
+            )
+        return group
 
 
 class _Caption(Part):
@@ -170,7 +189,9 @@ class Stage:
                     raise SceneError(f"零件「{part.name}」的 show 引用了没有声明的物理量 {id}（常数不能放进 show）")
             if part.show and not part.name:
                 raise SceneError("声明了 show 的零件必须有 name，否则无法点击")
-        self.overlays = [_Board(self.timeline), _Caption(self.timeline)]
+        card = ProblemCard(self.timeline)
+        has_plot = any(isinstance(part, Plot) for part in self.parts)
+        self.overlays = [card, _Board(self.timeline, card, has_plot), _Caption(self.timeline)]
 
     @property
     def all_parts(self):
@@ -215,6 +236,8 @@ class Stage:
             f = self.timeline.frame(index)
             texts = []
             for number, part in enumerate(self.all_parts):
+                if isinstance(part, ProblemCard):
+                    continue  # 题目卡片由系统排版，读题时本来就盖在实物图上面
                 is_overlay = part in self.overlays
                 label = f"{type(part).__name__} #{number}"
                 mobject = part.draw(None if part.static else f)

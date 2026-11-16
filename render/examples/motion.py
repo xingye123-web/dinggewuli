@@ -8,7 +8,13 @@ timeline = Timeline(
     "一列长 200 m 的火车以 20 m/s 的速度匀速通过一座长 1000 m 的大桥。求：(1) 火车完全通过大桥经过的路程；(2) 火车完全通过大桥所用的时间。",
     ["匀速直线运动"],
 )
-intro = timeline.phase("审题")
+
+# 读题时用笔标出的重要条件，按在题目里出现的顺序写
+timeline.mark("200 m")
+timeline.mark("20 m/s")
+timeline.mark("1000 m")
+timeline.mark("完全通过大桥", "underline")
+intro = timeline.phase("分析过程")
 cross = timeline.phase("火车过桥", min_seconds=8)
 distance = timeline.phase("求路程")
 time_used = timeline.phase("求时间")

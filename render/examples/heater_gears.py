@@ -9,11 +9,19 @@ timeline = Timeline(
     "S 接 2 时 R1 与 R2 串联，为低温挡，功率 440 W。求：(1) R1 的阻值；(2) R2 的阻值；(3) 低温挡工作 10 min 消耗的电能。",
     ["电源电压不变", "电阻不随温度变化"],
 )
-intro = timeline.phase("审题")
-high = timeline.phase("高温挡求 R1")
-low = timeline.phase("低温挡求 R2")
-heat = timeline.phase("低温挡工作 10 min", min_seconds=6)
-summary = timeline.phase("小结")
+# 读题时圈出已知量、划出挡位条件。读题旁白不写时系统会把题目原文改成口语自动读
+timeline.mark("220 V")
+timeline.mark("S 接 1 时只有 R1 工作", "underline")
+timeline.mark("1100 W")
+timeline.mark("R1 与 R2 串联", "underline")
+timeline.mark("440 W")
+
+# 每个阶段标明讲的是第几问。换问时系统会擦掉板书、说「我们来看第二小问」并把题目拿出来看
+intro = timeline.phase("分析挡位", question=1)
+high = timeline.phase("高温挡求 R1", question=1)
+low = timeline.phase("低温挡求 R2", question=2)
+heat = timeline.phase("低温挡工作 10 min", min_seconds=6, question=3)
+summary = timeline.phase("小结", question=3)
 
 timeline.quantity("U", "U", "电源电压", "V", 0, U)
 timeline.quantity("P_high", "P<sub>高</sub>", "高温挡功率", "W", 0, P_HIGH)
@@ -34,7 +42,7 @@ timeline.event(high.start, "S 接 1：高温挡")
 timeline.event(low.start, "S 接 2：低温挡")
 timeline.event(heat.end, "工作 10 min")
 
-intro.say("这是一道电热器挡位题，关键是看开关接到不同触点时，有几个电阻在工作。")
+intro.say("挡位题的关键，是看开关接到不同触点时，有几个电阻在工作。")
 intro.say("电压一定时，接入的电阻越小，功率越大，就是高温挡。")
 high.say("开关接1，电流从触点1直接过去，R2被短路，只有R1工作，电阻最小，是高温挡。")
 high.say("由P等于U方除以R，R1等于{U}伏的平方除以{P_high}瓦，是{R1}欧。")

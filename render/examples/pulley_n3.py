@@ -8,12 +8,21 @@ timeline = Timeline(
     "不计绳重和摩擦。求：(1) 有用功；(2) 拉力的功率；(3) 滑轮组的机械效率；(4) 动滑轮的重力。",
     ["匀速提升", "不计绳重和摩擦"],
 )
-intro = timeline.phase("审题")
-lift = timeline.phase("匀速提升", min_seconds=6)
-useful = timeline.phase("有用功")
-total = timeline.phase("总功和功率")
-efficiency = timeline.phase("机械效率")
-wheel = timeline.phase("动滑轮重")
+
+# 读题时用笔标出的重要条件，按在题目里出现的顺序写
+timeline.mark("240 N")
+timeline.mark("10 s")
+timeline.mark("匀速", "underline")
+timeline.mark("2 m")
+timeline.mark("100 N")
+timeline.mark("3 段绳子", "underline")
+timeline.mark("不计绳重和摩擦", "check")
+intro = timeline.phase("分析过程", question=1)
+lift = timeline.phase("匀速提升", min_seconds=6, question=1)
+useful = timeline.phase("有用功", question=1)
+total = timeline.phase("总功和功率", question=2)
+efficiency = timeline.phase("机械效率", question=3)
+wheel = timeline.phase("动滑轮重", question=4)
 
 timeline.constant("n", N)
 # 题目里的时间和距离都用 progress 换算，不受动画快慢影响

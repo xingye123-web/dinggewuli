@@ -8,7 +8,15 @@ timeline = Timeline(
     "求：(1) 有用功；(2) 拉力的功率；(3) 斜面的机械效率；(4) 物体受到的摩擦力。",
     ["匀速拉动", "拉力沿斜面向上"],
 )
-intro = timeline.phase("审题")
+
+# 读题时用笔标出的重要条件，按在题目里出现的顺序写
+timeline.mark("250 N")
+timeline.mark("500 N")
+timeline.mark("匀速", "underline")
+timeline.mark("5 m")
+timeline.mark("2 m")
+timeline.mark("10 s")
+intro = timeline.phase("分析过程")
 pull = timeline.phase("沿斜面拉上去", min_seconds=6)
 useful = timeline.phase("有用功")
 total = timeline.phase("总功和功率")

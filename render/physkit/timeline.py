@@ -21,9 +21,16 @@ _ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SLOT = re.compile(r"\{(\w+)\}")
 # 模型有时把数字本身写进花括号，比如 {400}，当成普通数字，不算引用物理量
 _BRACED_NUMBER = re.compile(r"\{(\d+(?:\.\d+)?)\}")
-_UNIT_AFTER_NUMBER = re.compile(r"\d\s*(?:N|J|W|kg|Pa|cm|mm|km|m|s|g|h|A|V|Ω)(?![A-Za-z])")
+# 054A 型、99A 坦克这类型号不是单位
+_UNIT_AFTER_NUMBER = re.compile(r"\d\s*(?:N|J|W|kg|Pa|cm|mm|km|m|s|g|h|A|V|Ω)(?![A-Za-z型号级])")
 _RESERVED = {"index", "clock"}
 _EPSILON = 1e-9
+MARK_KINDS = ("circle", "underline", "check")
+READ_TAIL = 1.1  # 读完题后停一下，题目缩到右上角
+ERASE_HOLD = 1.0  # 一问讲完，板书停一会儿再擦
+ERASE_SECONDS = 0.9  # 板擦扫过去的时间
+SWITCH_TAIL = 2.0  # 换小问：题目放大、划出这一问、再缩回去
+REVEAL_CHARS_PER_SECOND = 14  # 板书逐字写出的速度
 
 
 class SceneError(Exception):
@@ -59,16 +66,20 @@ class Moment:
 
     @property
     def seconds(self):
-        return self.phase.begin + self.phase.seconds * self.fraction
+        return self.phase.begin + self.phase.span * self.fraction
 
 
 class Phase:
     """动画的一个阶段，由 timeline.phase() 创建。属性 start、end 是它的开始和结束时刻。"""
 
-    def __init__(self, label, min_seconds):
+    def __init__(self, label, min_seconds, question=None, kind="lesson", tail=0.0):
         self.label = label
         self.min_seconds = min_seconds
         self.animated = min_seconds is not None
+        self.question = question
+        self.kind = kind  # lesson 是模型写的讲解；reading、erase、switch 是系统加的读题、擦板书、换小问
+        self.tail = tail
+        self.hold = 0.0  # 视频结尾多停的那一秒，不算进进度，最后一帧之前进度就到 1
         self.lines = []
         self.boards = []
         self.begin = 0.0
@@ -102,11 +113,16 @@ class Phase:
         """
         self.boards.append(_BRACED_NUMBER.sub(r"\1", expr))
 
+    @property
+    def span(self):
+        """动画实际进行的时长，不含结尾多停的时间。"""
+        return self.seconds - self.hold
+
     def progress(self, f):
         """这一帧在本阶段的进度：开始前是 0，结束后是 1。只有声明了 min_seconds 的阶段才会连续变化。"""
         if not self.animated:
             return 1.0 if f.clock >= self.begin - _EPSILON else 0.0
-        return min(max((f.clock - self.begin) / self.seconds, 0.0), 1.0)
+        return min(max((f.clock - self.begin) / self.span, 0.0), 1.0)
 
     def active(self, f):
         """这一帧是否处在本阶段内，含首尾两帧。"""
@@ -129,6 +145,13 @@ class Timeline:
         self.lines = []
         self.board_lines = []
         self.captions = []
+        self.reading = []
+        self.marks = []
+        self.switches = []
+        self.reading_window = None
+        self.question_count = 1
+        self._windows = []
+        self._inserted = False
         self._columns = None
 
     @property
@@ -139,17 +162,48 @@ class Timeline:
     def frame_count(self):
         return round(self.duration * self.fps)
 
-    def phase(self, label, min_seconds=None):
+    def phase(self, label, min_seconds=None, question=None):
         """按顺序追加一个阶段，返回 Phase。
 
         物体在运动的阶段必须给 min_seconds，表示动画至少持续多久。讲解时画面不动的阶段不要给。
         阶段的实际时长由旁白决定，旁白比 min_seconds 长时，动画会放慢。
+        question 是这个阶段讲的是第几问（1、2、3…），不写就跟上一个阶段相同。题目只有一问时不用写。
+        换到下一问时，系统会先停一下、用板擦擦掉上一问的板书，说「我们来看第二小问」，
+        把题目放大、划出这一问再缩回去，然后才进入这个阶段。
         """
         if min_seconds is not None and min_seconds <= 0:
             raise SceneError(f"阶段「{label}」的 min_seconds 必须大于 0")
-        phase = Phase(label, min_seconds)
+        if question is not None and (not isinstance(question, int) or not 1 <= question <= 9):
+            raise SceneError(f"阶段「{label}」的 question 要写成 1 到 9 的整数，表示第几问")
+        phase = Phase(label, min_seconds, question)
         self.phases.append(phase)
         return phase
+
+    def read(self, text):
+        """读题的旁白，开头把题目读一遍，写成口语：单位读中文，（1）读成第一问。可以分几次调用。
+
+        不写时系统会把题目原文自动改成口语来读。
+        """
+        from .lesson import split_sentences
+
+        if "{" in text:
+            raise SceneError("读题旁白里不要用 {物理量}，直接照题目读出数字")
+        self.reading.extend(split_sentences(text, MAX_SPEECH_CHARS))
+
+    def mark(self, phrase, kind="circle"):
+        """读题时在题目上用笔标出重要条件：kind 是 circle（圈）、underline（下划线）或 check（打勾）。
+
+        phrase 要和 Timeline 第一个参数里的原文一字不差（空格可以不同）。按在题目里出现的顺序写，
+        读到那里时就画出来。圈已知量的数值和单位，比如 "250 N"；关键词用下划线，比如 "匀速"；
+        不计摩擦、忽略绳重这类条件打勾。一道题标 3 到 6 处就够。
+        """
+        from .lesson import plain
+
+        if kind not in MARK_KINDS:
+            raise SceneError(f"mark 的 kind 只能是 circle、underline 或 check，收到的是 {kind!r}")
+        if not plain(phrase) or plain(phrase) not in plain(self.text):
+            raise SceneError(f"mark 的「{phrase}」在题目原文里找不到，要从 Timeline 的第一个参数里原样复制")
+        self.marks.append({"phrase": phrase, "kind": kind, "t": 0.0})
 
     def constant(self, id, value):
         """声明公式里要用的常数，比如绳子段数 n。"""
@@ -194,6 +248,7 @@ class Timeline:
         """算出每一帧的全部数据。speech 是配音后的实际时长和字幕时间，没有时按字数估算。"""
         if not self.phases:
             raise SceneError("时间线至少要有一个阶段")
+        self._insert_system_phases()
         self.lines = [line for phase in self.phases for line in phase.lines]
         if not self.lines:
             raise SceneError("至少要有一句旁白，用 phase.say(...) 添加")
@@ -202,7 +257,9 @@ class Timeline:
 
         for index, line in enumerate(self.lines):
             line["seconds"] = speech[index]["seconds"] if speech else len(line["raw"]) / CHARS_PER_SECOND
+            line["clauses"] = speech[index]["clauses"] if speech else None
         self._layout()
+        self._schedule()
         if self.duration > MAX_SECONDS:
             raise SceneError(f"动画时长 {self.duration:.0f} 秒超过上限 {MAX_SECONDS} 秒，请精简讲解")
         self._compute_columns()
@@ -220,7 +277,7 @@ class Timeline:
         cursor = 0
         for phase in self.phases:
             spoken = sum(line["seconds"] + SPEECH_GAP for line in phase.lines)
-            seconds = max(phase.min_seconds or 0.0, spoken)
+            seconds = max(phase.min_seconds or 0.0, spoken) + phase.tail
             if seconds <= 0:
                 raise SceneError(f"阶段「{phase.label}」既没有旁白也没有 min_seconds，时长是 0")
             frames = math.ceil(seconds * self.fps - _EPSILON)
@@ -232,6 +289,150 @@ class Timeline:
                 offset += line["seconds"] + SPEECH_GAP
             cursor += frames
         self.phases[-1].seconds += TAIL_SECONDS
+        self.phases[-1].hold = TAIL_SECONDS
+
+    def _answer_question(self, expr):
+        """这行板书算出的是第几问的答案：看最后一个等号右边引用了哪个答案。"""
+        answer_ids = [answer["id"] for answer in self.answers]
+        slots = [match.group(1) for match in _SLOT.finditer(expr.rsplit("=", 1)[-1])]
+        produced = next((id for id in reversed(slots) if id in answer_ids), None)
+        return answer_ids.index(produced) + 1 if produced else None
+
+    def _assign_questions(self, phases):
+        """每个阶段属于第几问。模型写了 question 就按它的，没写就看板书算出的是第几问的答案推断。"""
+        if any(phase.question for phase in phases):
+            current = 1
+            for phase in phases:
+                current = phase.question or current
+                phase.question = current
+            return
+        guesses = []
+        for phase in phases:
+            found = [q for q in (self._answer_question(expr) for expr in phase.boards) if q]
+            guesses.append(min(found) if found else None)
+        # 没有板书的阶段算到后面最近的那一问里（多半是在为它做铺垫），最后几个算到最后一问
+        following = None
+        for index in reversed(range(len(phases))):
+            following = guesses[index] or following
+            guesses[index] = following
+        current = 1
+        for phase, guess in zip(phases, guesses):
+            current = max(current, guess or current)  # 不往回跳
+            phase.question = current
+
+    def _insert_system_phases(self):
+        """在模型写的阶段前后加上读题、擦板书、换小问。compile 只调用一次。"""
+        if self._inserted:
+            return
+        self._inserted = True
+        from .lesson import QUESTION_NAMES, spoken_problem, split_sentences
+
+        lessons = list(self.phases)
+        self._assign_questions(lessons)
+        self.question_count = max(phase.question for phase in lessons)
+
+        reading = Phase("读题", None, question=None, kind="reading", tail=READ_TAIL)
+        for sentence in self.reading or split_sentences(spoken_problem(self.text), MAX_SPEECH_CHARS):
+            reading.say(sentence)
+        result = [reading]
+        previous = lessons[0].question
+        for phase in lessons:
+            if phase.question != previous:
+                result.append(Phase(f"第{previous}问小结", ERASE_HOLD + ERASE_SECONDS, question=previous, kind="erase"))
+                name = QUESTION_NAMES[phase.question - 1]
+                switch = Phase(f"第{name}问", None, question=phase.question, kind="switch", tail=SWITCH_TAIL)
+                switch.say(f"我们来看第{name}小问。")
+                result.append(switch)
+                previous = phase.question
+            result.append(phase)
+        self.phases = result
+
+    def _schedule(self):
+        """排好读题时每个圈什么时候画、换小问的放大缩小、板书逐字写出和板擦的时刻。
+        这些时间段里画面一直在变，unique_frames 要逐帧渲染。"""
+        from .lesson import GROW_SECONDS, MARK_SECONDS, SHRINK_SECONDS, UNDERLINE_SECONDS, plain
+
+        windows = []
+        reading = self.phases[0]
+        end = reading.begin + reading.seconds
+        self.reading_window = (reading.begin, end)
+        windows.append((end - SHRINK_SECONDS, end))
+        # 读到哪里画到哪里：把短语也改成口语，在读题旁白里找到它，按配音的分句时间定下画的时刻
+        latest = end - SHRINK_SECONDS - MARK_SECONDS
+        cursor = (0, 0)
+        for mark in self.marks:
+            found = self._spoken_position(reading, mark["phrase"], cursor)
+            if found is None:
+                # 找不到时退回按题目里的位置估算
+                flat = plain(self.text)
+                share = (flat.find(plain(mark["phrase"])) + len(plain(mark["phrase"]))) / max(len(flat), 1)
+                spoken_end = reading.lines[-1]["start"] + reading.lines[-1]["seconds"] if reading.lines else end
+                moment = reading.begin + (spoken_end - reading.begin) * share
+            else:
+                moment, cursor = found
+            mark["t"] = min(max(moment, reading.begin), latest)
+            windows.append((mark["t"], mark["t"] + MARK_SECONDS))
+        self.switches = []
+        for phase in self.phases:
+            begin, finish = phase.begin, phase.begin + phase.seconds
+            if phase.kind == "switch":
+                underline_at = begin + GROW_SECONDS + 0.1
+                self.switches.append({"question": phase.question, "t": begin, "t_end": finish,
+                                      "t_underline": underline_at})
+                windows += [(begin, begin + GROW_SECONDS), (underline_at, underline_at + UNDERLINE_SECONDS),
+                            (finish - SHRINK_SECONDS, finish)]
+            elif phase.kind == "erase":
+                windows.append((begin + ERASE_HOLD, finish))
+        self._windows = windows
+
+    @staticmethod
+    def _spoken_position(reading, phrase, cursor):
+        """短语在读题旁白里开始读到的时刻。返回 (秒, 下次从哪里接着找)，找不到返回 None。"""
+        from .lesson import plain, spoken_problem
+
+        targets = [plain(spoken_problem(phrase)), plain(phrase)]
+        for number in range(cursor[0], len(reading.lines)):
+            line = reading.lines[number]
+            text = line["raw"]
+            for target in targets:
+                position = text.find(target, cursor[1] if number == cursor[0] else 0) if target else -1
+                if position < 0:
+                    continue
+                offset = Timeline._time_in_line(line, text, position + len(target) * 0.5)
+                return line["start"] + offset, (number, position + len(target))
+        return None
+
+    @staticmethod
+    def _time_in_line(line, text, position):
+        """一句旁白里第 position 个字大约在第几秒读到。有配音的分句时间就用它，没有就按字数平分。"""
+        clauses = line.get("clauses")
+        if not clauses:
+            return line["seconds"] * position / max(len(text), 1)
+        consumed = 0
+        for index, clause in enumerate(clauses):
+            length = len(clause["text"])
+            if position <= consumed + length or index == len(clauses) - 1:
+                start = clause["start"]
+                stop = clauses[index + 1]["start"] if index + 1 < len(clauses) else line["seconds"]
+                return start + (stop - start) * min(max(position - consumed, 0) / max(length, 1), 1.0)
+            consumed += length
+        return line["seconds"]
+
+    def phase_at(self, t):
+        begins = [phase.begin for phase in self.phases]
+        return self.phases[max(bisect.bisect_right(begins, t + _EPSILON) - 1, 0)]
+
+    def question_at(self, t):
+        """这一时刻在讲第几问。读题时是 None。"""
+        return self.phase_at(t).question
+
+    def overlay_key(self, index):
+        """这一帧是否处在读题圈注、题目放大缩小、板书逐字写出、板擦擦除这些动画里。"""
+        t = index / self.fps
+        for start, stop in self._windows:
+            if start - _EPSILON <= t <= stop + _EPSILON:
+                return index
+        return None
 
     def _compute_columns(self):
         columns = {}
@@ -293,6 +494,8 @@ class Timeline:
         for line in self.lines:
             index = self.frame_at(line["phase"].end.seconds)
             line["text"] = _SLOT.sub(lambda m: self._spoken_value(m.group(1), index, spoken_number), line["raw"])
+            if line["phase"].kind != "lesson":
+                continue  # 读题和换小问的话是系统写的，不拿模型的规矩去查
             if _UNIT_AFTER_NUMBER.search(line["text"]):
                 raise SceneError(f"旁白要写成口语，数字后面的单位用中文（牛、米、焦、瓦、秒）：{line['text']}")
             if "<" in line["text"]:
@@ -331,34 +534,27 @@ class Timeline:
         self._caption_times = [caption["t"] for caption in self.captions]
 
     def _build_board(self):
-        """板书按「问」分组：算出第几问答案的那一行属于第几问，前面的推导行归到它后面最近的那一问。
-        不用模型另外标注。"""
+        """板书按阶段所属的问分组。同一阶段的几行依次逐字写出，写完一行再写下一行。"""
         self.board_lines = []
-        answer_ids = [answer["id"] for answer in self.answers]
         for phase in self.phases:
             index = self.frame_at(phase.end.seconds)
+            cursor = phase.begin + 0.1
             for expr in phase.boards:
-                # 这一行算出的是最后一个等号右边的量。式子中间引用的前一问答案不算
-                slots = [match.group(1) for match in _SLOT.finditer(expr.rsplit("=", 1)[-1])]
-                produced = next((id for id in reversed(slots) if id in answer_ids), None)
-                own = answer_ids.index(produced) + 1 if produced else None
+                text = _SLOT.sub(lambda m: self._spoken_value(m.group(1), index, board_number), expr)
+                visible = len(re.sub(r"</?su[bp]>|\s", "", text))
+                reveal = min(max(visible / REVEAL_CHARS_PER_SECOND, 0.4), 1.6)
                 self.board_lines.append(
                     {
                         "expr": expr,
-                        "t": phase.begin,
+                        "t": cursor,
+                        "reveal": reveal,
                         "t_end": phase.begin + phase.seconds,
-                        "question": own,
-                        "text": _SLOT.sub(lambda m: self._spoken_value(m.group(1), index, board_number), expr),
+                        "question": phase.question or 1,
+                        "text": text,
                     }
                 )
-        following = None
-        for line in reversed(self.board_lines):
-            following = line["question"] or following
-            line["question"] = following
-        previous = 1
-        for line in self.board_lines:
-            line["question"] = line["question"] or previous
-            previous = line["question"]
+                self._windows.append((cursor, cursor + reveal))
+                cursor += reveal + 0.15
         self._board_times = [line["t"] for line in self.board_lines]
 
     def caption_at(self, index):
@@ -389,6 +585,7 @@ class Timeline:
                 current.progress(f) if current.animated else None,
                 self.caption_at(index),
                 self.board_count_at(index),
+                self.overlay_key(index),
             )
             if signature == previous:
                 repeats[-1] += 1
@@ -440,7 +637,10 @@ class Timeline:
             "quantities": [{k: q[k] for k in ("id", "symbol", "name", "unit", "digits")} for q in self.quantities],
             "constants": self.constants,
             "formulas": [{k: line[k] for k in ("expr", "t", "t_end", "question")} for line in self.board_lines],
-            "phases": [{"label": p.label, "t0": p.begin, "t1": p.begin + p.seconds} for p in self.phases],
+            "phases": [
+                {"label": p.label, "t0": p.begin, "t1": p.begin + p.seconds, "kind": p.kind, "question": p.question}
+                for p in self.phases
+            ],
             "events": [{"t": event["moment"].seconds, "label": event["label"]} for event in self.events],
             "steps": [
                 {"t": line["start"], "title": line["phase"].label, "text": to_display(line["text"])} for line in self.lines

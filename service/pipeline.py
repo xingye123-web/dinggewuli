@@ -15,7 +15,21 @@ from .narrate import NarrationError
 
 _CODE_BLOCK = re.compile(r"```(?:python)?\s*\n(.*?)```", re.S)
 _UNSUPPORTED = re.compile(r"^\s*UNSUPPORTED[:：]\s*(.+)", re.S)
-ANSWER_TOLERANCE = 0.01  # 允许 1% 的取整误差
+ANSWER_TOLERANCE = 0.0005  # 相对误差，比这大说明中间步骤约分带偏了答案
+
+
+def _decimals(value):
+    text = repr(float(value))
+    return 0 if "e" in text or text.endswith(".0") else len(text.split(".")[1])
+
+
+def _close(code_value, answer_value):
+    """代码算的是精确值，解答可能按题目要求保留了几位。按解答的位数四舍五入后相等，或相对误差很小，都算对。"""
+    code_value, answer_value = float(code_value), float(answer_value)
+    places = _decimals(answer_value)
+    if places <= 6 and abs(round(code_value, places) - answer_value) < 10 ** -(places + 3):
+        return True
+    return abs(code_value - answer_value) / max(abs(answer_value), 1e-9) <= ANSWER_TOLERANCE
 
 
 class PipelineStop(Exception):
@@ -42,11 +56,11 @@ def compare_answers(expected, actual):
         if str(found["unit"]).replace(" ", "") != str(answer["unit"]).replace(" ", ""):
             problems.append(f"「{answer['label']}」的单位是 {found['unit']}，解答里是 {answer['unit']}，要一致")
             continue
-        scale = max(abs(float(answer["value"])), 1e-9)
-        if abs(float(found["value"]) - float(answer["value"])) / scale > ANSWER_TOLERANCE:
+        if not _close(found["value"], answer["value"]):
             problems.append(
                 f"「{answer['label']}」代码算出 {found['value']} {found['unit']}，解答是 {answer['value']} {answer['unit']}。"
-                "检查公式、取值时刻和单位换算"
+                "检查公式、取值时刻和单位换算，还有中间结果是不是先四舍五入了（比如把速度写成 9.26 再去算时间），"
+                "中间量要用 timeline.quantity 的公式直接算"
             )
     return problems
 

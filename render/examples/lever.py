@@ -9,7 +9,14 @@ timeline = Timeline(
     "使杠杆在水平位置平衡。求：(1) 所需的动力；(2) 用这个杠杆把物体匀速提升 0.1 m，B 端下降的距离；(3) 动力做的功。",
     ["轻质杠杆，不计杠杆自重", "动力始终竖直向下"],
 )
-intro = timeline.phase("审题")
+
+# 读题时用笔标出的重要条件，按在题目里出现的顺序写
+timeline.mark("0.2 m")
+timeline.mark("0.6 m")
+timeline.mark("30 N")
+timeline.mark("竖直向下", "underline")
+timeline.mark("水平位置平衡", "underline")
+intro = timeline.phase("分析过程")
 balance = timeline.phase("杠杆平衡")
 lift = timeline.phase("提升物体", min_seconds=6)
 distance = timeline.phase("B 端下降的距离")
