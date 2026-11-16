@@ -29,7 +29,7 @@ MARK_KINDS = ("circle", "underline", "check")
 READ_TAIL = 1.1  # 读完题后停一下，题目缩到右上角
 ERASE_HOLD = 1.0  # 一问讲完，板书停一会儿再擦
 ERASE_SECONDS = 0.9  # 板擦扫过去的时间
-SWITCH_TAIL = 2.0  # 换小问：题目放大、划出这一问、再缩回去
+SWITCH_TAIL = 1.2  # 换小问：读完这一问后题目缩回去（放大和划线跟读这一问同时进行）
 REVEAL_CHARS_PER_SECOND = 14  # 板书逐字写出的速度
 
 
@@ -80,6 +80,8 @@ class Phase:
         self.kind = kind  # lesson 是模型写的讲解；reading、erase、switch 是系统加的读题、擦板书、换小问
         self.tail = tail
         self.hold = 0.0  # 视频结尾多停的那一秒，不算进进度，最后一帧之前进度就到 1
+        self.replays = []  # 后面让这个阶段再动一遍的阶段，见 timeline.replay
+        self.replay_range = (0.0, 1.0)
         self.lines = []
         self.boards = []
         self.begin = 0.0
@@ -119,7 +121,17 @@ class Phase:
         return self.seconds - self.hold
 
     def progress(self, f):
-        """这一帧在本阶段的进度：开始前是 0，结束后是 1。只有声明了 min_seconds 的阶段才会连续变化。"""
+        """这一帧在本阶段的进度：开始前是 0，结束后是 1。只有声明了 min_seconds 的阶段才会连续变化。
+
+        用 timeline.replay 让它再动一遍时，在重放的那段时间里进度会重新走一遍。
+        """
+        for replay in reversed(self.replays):
+            if f.clock >= replay.begin - _EPSILON:
+                low, high = replay.replay_range
+                return low + (high - low) * replay._own_progress(f)
+        return self._own_progress(f)
+
+    def _own_progress(self, f):
         if not self.animated:
             return 1.0 if f.clock >= self.begin - _EPSILON else 0.0
         return min(max((f.clock - self.begin) / self.span, 0.0), 1.0)
@@ -149,6 +161,7 @@ class Timeline:
         self.marks = []
         self.switches = []
         self.reading_window = None
+        self.reading_shrinks = True
         self.question_count = 1
         self._windows = []
         self._inserted = False
@@ -179,10 +192,27 @@ class Timeline:
         self.phases.append(phase)
         return phase
 
-    def read(self, text):
-        """读题的旁白，开头把题目读一遍，写成口语：单位读中文，（1）读成第一问。可以分几次调用。
+    def replay(self, phase, label, min_seconds=None, question=None, start=0.0, end=1.0):
+        """让前面某个运动阶段在这里再动一遍，返回新的阶段，用法和 timeline.phase 一样。
 
-        不写时系统会把题目原文自动改成口语来读。
+        比如第三问还要看提升的过程：again = timeline.replay(lift, "再看提升过程", question=3)。
+        重放时所有用 lift.progress(f) 算出来的量会跟着重新变化，画面也会重新动。
+        start、end 是只重放其中一段，比如 start=0.5 只重放后一半。重放结束后停在 end 那一刻的样子。
+        """
+        if not isinstance(phase, Phase) or not phase.animated:
+            raise SceneError(f"replay 只能重放有 min_seconds 的运动阶段，收到的是 {getattr(phase, 'label', phase)!r}")
+        if not 0 <= start < end <= 1:
+            raise SceneError("replay 的 start、end 要满足 0 ≤ start < end ≤ 1")
+        seconds = min_seconds or phase.min_seconds * (end - start)
+        again = self.phase(label, max(seconds, 1.0), question)
+        again.replay_range = (start, end)
+        phase.replays.append(again)
+        return again
+
+    def read(self, text):
+        """读题的旁白，开头把题目读一遍，写成口语：单位读中文。可以分几次调用。
+
+        题目有好几问时只写题干，各小问由系统在讲到时再读。不写时系统会把题目原文自动改成口语来读。
         """
         from .lesson import split_sentences
 
@@ -321,31 +351,44 @@ class Timeline:
             phase.question = current
 
     def _insert_system_phases(self):
-        """在模型写的阶段前后加上读题、擦板书、换小问。compile 只调用一次。"""
+        """在模型写的阶段前后加上读题、擦板书、换小问。compile 只调用一次。
+
+        有好几问时，开头只读题干；讲到哪一问，再把这一问拿出来读。只有一问时开头整题读完。
+        """
         if self._inserted:
             return
         self._inserted = True
-        from .lesson import QUESTION_NAMES, spoken_problem, split_sentences
+        from .lesson import QUESTION_NAMES, spoken_problem, split_questions, split_sentences
 
         lessons = list(self.phases)
         self._assign_questions(lessons)
         self.question_count = max(phase.question for phase in lessons)
+        stem, asked = split_questions(self.text)
+        by_question = self.question_count > 1 and len(asked) >= 2
 
-        reading = Phase("读题", None, question=None, kind="reading", tail=READ_TAIL)
-        for sentence in self.reading or split_sentences(spoken_problem(self.text), MAX_SPEECH_CHARS):
+        # 有好几问时题目不缩小，直接接着拿出第一问来读
+        reading = Phase("读题", None, question=None, kind="reading", tail=0.3 if by_question else READ_TAIL)
+        for sentence in self.reading or split_sentences(spoken_problem(stem if by_question else self.text),
+                                                        MAX_SPEECH_CHARS):
             reading.say(sentence)
         result = [reading]
-        previous = lessons[0].question
+        previous = None
         for phase in lessons:
-            if phase.question != previous:
-                result.append(Phase(f"第{previous}问小结", ERASE_HOLD + ERASE_SECONDS, question=previous, kind="erase"))
+            if phase.question != previous and (by_question or previous is not None):
+                if previous is not None:
+                    result.append(Phase(f"第{previous}问小结", ERASE_HOLD + ERASE_SECONDS, question=previous,
+                                        kind="erase"))
                 name = QUESTION_NAMES[phase.question - 1]
                 switch = Phase(f"第{name}问", None, question=phase.question, kind="switch", tail=SWITCH_TAIL)
-                switch.say(f"我们来看第{name}小问。")
+                opening = "先看第一小问" if phase.question == 1 else f"我们来看第{name}小问"
+                body = spoken_problem(asked[phase.question]) if phase.question in asked else ""
+                for sentence in split_sentences(f"{opening}：{body}。" if body else f"{opening}。", MAX_SPEECH_CHARS):
+                    switch.say(sentence)
                 result.append(switch)
-                previous = phase.question
+            previous = phase.question
             result.append(phase)
         self.phases = result
+        self.reading_shrinks = not by_question
 
     def _schedule(self):
         """排好读题时每个圈什么时候画、换小问的放大缩小、板书逐字写出和板擦的时刻。
@@ -356,50 +399,60 @@ class Timeline:
         reading = self.phases[0]
         end = reading.begin + reading.seconds
         self.reading_window = (reading.begin, end)
-        windows.append((end - SHRINK_SECONDS, end))
-        # 读到哪里画到哪里：把短语也改成口语，在读题旁白里找到它，按配音的分句时间定下画的时刻
-        latest = end - SHRINK_SECONDS - MARK_SECONDS
-        cursor = (0, 0)
+        if self.reading_shrinks:
+            windows.append((end - SHRINK_SECONDS, end))
+        # 读到哪里画到哪里：把短语也改成口语，在读题和各小问的旁白里找到它，按配音的分句时间定下画的时刻
+        spoken = [phase for phase in self.phases if phase.kind in ("reading", "switch")]
+        cursor = (0, 0, 0)
         for mark in self.marks:
-            found = self._spoken_position(reading, mark["phrase"], cursor)
+            found = self._spoken_position(spoken, mark["phrase"], cursor)
             if found is None:
                 # 找不到时退回按题目里的位置估算
                 flat = plain(self.text)
                 share = (flat.find(plain(mark["phrase"])) + len(plain(mark["phrase"]))) / max(len(flat), 1)
                 spoken_end = reading.lines[-1]["start"] + reading.lines[-1]["seconds"] if reading.lines else end
-                moment = reading.begin + (spoken_end - reading.begin) * share
+                moment, owner = reading.begin + (spoken_end - reading.begin) * share, reading
             else:
-                moment, cursor = found
-            mark["t"] = min(max(moment, reading.begin), latest)
+                moment, cursor, owner = found
+            # 题目缩小之前要画完
+            latest = owner.begin + owner.seconds - SHRINK_SECONDS - MARK_SECONDS
+            mark["t"] = min(max(moment, owner.begin), latest)
             windows.append((mark["t"], mark["t"] + MARK_SECONDS))
         self.switches = []
-        for phase in self.phases:
+        for index, phase in enumerate(self.phases):
             begin, finish = phase.begin, phase.begin + phase.seconds
             if phase.kind == "switch":
-                underline_at = begin + GROW_SECONDS + 0.1
+                # 紧接着读题的第一问，题目本来就是大的，不用再放大
+                grow = self.phases[index - 1].kind != "reading"
+                underline_at = (phase.lines[0]["start"] if phase.lines else begin) + (GROW_SECONDS if grow else 0) + 0.2
                 self.switches.append({"question": phase.question, "t": begin, "t_end": finish,
-                                      "t_underline": underline_at})
-                windows += [(begin, begin + GROW_SECONDS), (underline_at, underline_at + UNDERLINE_SECONDS),
-                            (finish - SHRINK_SECONDS, finish)]
+                                      "t_underline": underline_at, "grow": grow})
+                if grow:
+                    windows.append((begin, begin + GROW_SECONDS))
+                windows += [(underline_at, underline_at + UNDERLINE_SECONDS), (finish - SHRINK_SECONDS, finish)]
             elif phase.kind == "erase":
                 windows.append((begin + ERASE_HOLD, finish))
         self._windows = windows
 
     @staticmethod
-    def _spoken_position(reading, phrase, cursor):
-        """短语在读题旁白里开始读到的时刻。返回 (秒, 下次从哪里接着找)，找不到返回 None。"""
+    def _spoken_position(phases, phrase, cursor):
+        """短语在读题旁白里开始读到的时刻。返回 (秒, 下次从哪里接着找, 所在阶段)，找不到返回 None。"""
         from .lesson import plain, spoken_problem
 
         targets = [plain(spoken_problem(phrase)), plain(phrase)]
-        for number in range(cursor[0], len(reading.lines)):
-            line = reading.lines[number]
-            text = line["raw"]
-            for target in targets:
-                position = text.find(target, cursor[1] if number == cursor[0] else 0) if target else -1
-                if position < 0:
-                    continue
-                offset = Timeline._time_in_line(line, text, position + len(target) * 0.5)
-                return line["start"] + offset, (number, position + len(target))
+        for which in range(cursor[0], len(phases)):
+            phase = phases[which]
+            first_line = cursor[1] if which == cursor[0] else 0
+            for number in range(first_line, len(phase.lines)):
+                line = phase.lines[number]
+                text = line["raw"]
+                skip = cursor[2] if (which, number) == cursor[:2] else 0
+                for target in targets:
+                    position = text.find(target, skip) if target else -1
+                    if position < 0:
+                        continue
+                    offset = Timeline._time_in_line(line, text, position + len(target) * 0.5)
+                    return line["start"] + offset, (which, number, position + len(target)), phase
         return None
 
     @staticmethod

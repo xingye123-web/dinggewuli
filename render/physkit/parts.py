@@ -547,8 +547,15 @@ class Ruler(Part):
             group.add(Line(_point(x, y0), _point(x, y1), color=self.color, stroke_width=5))
         content = _val(self.text, f)
         if content:
-            direction = {"right": _point(1, 0), "left": _point(-1, 0), "top": _point(0, 1)}[self.text_side]
-            label = _text(content, 22, self.color).next_to(_point(x, y1), direction, buff=0.15)
+            side = self.text_side
+            label = _text(content, 22, self.color)
+            # 这一侧放不下时换到另一侧，硬往里挪会把文字推到旁边的容器壁、物块上
+            if side == "right" and x + 0.15 + label.width > STAGE_RIGHT:
+                side = "left"
+            elif side == "left" and x - 0.15 - label.width < STAGE_LEFT:
+                side = "right"
+            direction = {"right": _point(1, 0), "left": _point(-1, 0), "top": _point(0, 1)}[side]
+            label.next_to(_point(x, y1), direction, buff=0.15)
             if self.text_side != "top":
                 # 标尺的起点 y0 多半是地面或水面。长度接近 0 时文字会压在那条线上，所以让文字离起点至少半行，
                 # 朝标尺伸展的方向（默认向上）让开

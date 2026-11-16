@@ -81,6 +81,28 @@ def spoken_problem(text):
     return spoken
 
 
+_QUESTION_LABEL = re.compile(r"[（(]\s*([1-9])\s*[）)]")
+
+
+def split_questions(text):
+    """把题目拆成题干和各小问：返回 (题干, {1: "第一问的问法", 2: ...})。没有（1）（2）这样的小问时，小问是空的。
+
+    小问要从 (1) 开始连续编号才算，选择题选项里偶然出现的括号数字不算。题干末尾的「求：」去掉。
+    """
+    found = list(_QUESTION_LABEL.finditer(text))
+    labels = [int(m.group(1)) for m in found]
+    expected = list(range(1, len(labels) + 1))
+    if len(labels) < 2 or labels != expected:
+        return text, {}
+    stem = re.sub(r"[，,\s]*(求|问)?[:：]?\s*$", "", text[: found[0].start()].rstrip())
+    questions = {}
+    for index, match in enumerate(found):
+        stop = found[index + 1].start() if index + 1 < len(found) else len(text)
+        body = text[match.end(): stop].strip()
+        questions[labels[index]] = re.sub(r"[；;，,。.？?\s]+$", "", body)
+    return stem + ("。" if stem and stem[-1] not in "。！？；" else ""), questions
+
+
 def split_sentences(text, limit):
     """按句号、分号拆成几句，每句不超过 limit 个字。"""
     pieces = [p for p in re.split(r"(?<=[。！？；;])", text) if p.strip()]
@@ -249,14 +271,15 @@ class ProblemCard(Part):
         reading = self.timeline.reading_window
         if reading is None:
             return 0.0
-        if t < reading[1] - SHRINK_SECONDS:
-            return 1.0
         if t < reading[1]:
+            # 有好几问时读完题干不缩小，接着拿出第一问
+            if not self.timeline.reading_shrinks or t < reading[1] - SHRINK_SECONDS:
+                return 1.0
             return 1 - _smooth((t - (reading[1] - SHRINK_SECONDS)) / SHRINK_SECONDS)
         for switch in self.timeline.switches:
             begin, end = switch["t"], switch["t_end"]
             if begin <= t < end:
-                if t < begin + GROW_SECONDS:
+                if switch["grow"] and t < begin + GROW_SECONDS:
                     return _smooth((t - begin) / GROW_SECONDS)
                 if t > end - SHRINK_SECONDS:
                     return 1 - _smooth((t - (end - SHRINK_SECONDS)) / SHRINK_SECONDS)
