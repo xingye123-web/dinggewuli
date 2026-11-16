@@ -282,7 +282,7 @@ class Rope(Part):
 
 
 class Block(Part):
-    """物块，中心在 (x, y)，宽 w 高 h。text 是写在物块上的文字。
+    """物块，中心在 (x, y)，宽 w 高 h。text 是写在物块上的文字。w、h 也可以写成 lambda f: ...，比如切去一部分后变矮。
 
     top、bottom 是上下表面的纵坐标，是函数，可以直接当作绳子或连杆端点的 y，但不能做加减。
     """
@@ -293,11 +293,11 @@ class Block(Part):
 
     @property
     def top(self):
-        return lambda f: _val(self.y, f) + self.h / 2
+        return lambda f: _val(self.y, f) + _val(self.h, f) / 2
 
     @property
     def bottom(self):
-        return lambda f: _val(self.y, f) - self.h / 2
+        return lambda f: _val(self.y, f) - _val(self.h, f) / 2
 
     def _label(self, f):
         content = _val(self.text, f)
@@ -307,7 +307,7 @@ class Block(Part):
         center = _point(_val(self.x, f), _val(self.y, f))
         group = VGroup(
             Rectangle(
-                width=self.w, height=self.h, stroke_color=self.color, fill_color=self.color, fill_opacity=0.35
+                width=_val(self.w, f), height=_val(self.h, f), stroke_color=self.color, fill_color=self.color, fill_opacity=0.35
             ).move_to(center)
         )
         label = self._label(f)
@@ -316,12 +316,12 @@ class Block(Part):
         return group
 
     def bounds(self, f):
-        x, y = _val(self.x, f), _val(self.y, f)
-        return x - self.w / 2, y - self.h / 2, x + self.w / 2, y + self.h / 2
+        x, y, w, h = _val(self.x, f), _val(self.y, f), _val(self.w, f), _val(self.h, f)
+        return x - w / 2, y - h / 2, x + w / 2, y + h / 2
 
     def problems(self, f):
         label = self._label(f)
-        return _text_fit_problems(_val(self.text, f), label, self.w, self.h) if label else []
+        return _text_fit_problems(_val(self.text, f), label, _val(self.w, f), _val(self.h, f)) if label else []
 
     def edges(self, f):
         x0, y0, x1, y1 = self.bounds(f)
@@ -548,7 +548,16 @@ class Ruler(Part):
         content = _val(self.text, f)
         if content:
             direction = {"right": _point(1, 0), "left": _point(-1, 0), "top": _point(0, 1)}[self.text_side]
-            group.add(_keep_inside(_text(content, 22, self.color).next_to(_point(x, y1), direction, buff=0.15)))
+            label = _text(content, 22, self.color).next_to(_point(x, y1), direction, buff=0.15)
+            if self.text_side != "top":
+                # 标尺的起点 y0 多半是地面或水面。长度接近 0 时文字会压在那条线上，所以让文字离起点至少半行，
+                # 朝标尺伸展的方向（默认向上）让开
+                clearance = label.height / 2 + 0.08
+                if y1 >= y0:
+                    label.set_y(max(y1, y0 + clearance))
+                else:
+                    label.set_y(min(y1, y0 - clearance))
+            group.add(_keep_inside(label))
         return group
 
 
@@ -824,6 +833,59 @@ class Switch(_Component):
             Dot(end, radius=0.05, color=INK),
         )
         return self._with_label(group, f)
+
+
+class DoubleThrowSwitch(Part):
+    """单刀双掷开关，题目里「S 接 1」「S 接 2」那种。刀片绕 pivot 转，接到 contacts 里的某一个触点。
+
+    pivot 是刀片的转轴，contacts 是两个触点，都写成 (x, y)，用 Wire 把它们分别连到电路里，
+    比如转轴连电源，触点 1 连只有 R 的支路，触点 2 连 R 与 R0 串联的支路。
+    to 是接哪个触点，写 1 或 2，和 contacts 的顺序、题目里的编号一致；
+    可以写成 lambda f: 1 if high.active(f) else 2，讲到哪个挡位就拨到哪边。
+    触点旁自动标上 1、2。text 是开关的名字，比如 "S"，默认写在转轴背对触点的一侧；
+    那一侧有导线时用 text_side（top、bottom、left、right）换个方向。
+    两个触点离转轴 0.6 到 1 比较合适，两个触点之间至少隔 0.5。
+    """
+
+    def __init__(self, pivot, contacts, to=1, text=None, text_side=None, name=None, show=()):
+        super().__init__(name, show)
+        self.pivot, self.contacts, self.to, self.text = pivot, list(contacts), to, text
+        self.text_side = text_side
+
+    def _points(self, f):
+        pivot = _point(*(_val(v, f) for v in self.pivot))
+        contacts = [_point(*(_val(v, f) for v in contact)) for contact in self.contacts]
+        return pivot, contacts
+
+    def draw(self, f):
+        pivot, contacts = self._points(f)
+        chosen = int(_val(self.to, f))
+        if chosen not in range(1, len(contacts) + 1):
+            raise ValueError(f"DoubleThrowSwitch 的 to 只能是 1 到 {len(contacts)}，收到的是 {chosen}")
+        group = VGroup(Line(pivot, contacts[chosen - 1], color=INK, stroke_width=3), Dot(pivot, radius=0.06, color=INK))
+        for number, contact in enumerate(contacts, start=1):
+            group.add(Dot(contact, radius=0.05, color=INK))
+            away = contact - pivot
+            away = away / (np.linalg.norm(away) or 1)
+            group.add(_text(str(number), 18, INK).move_to(contact + away * 0.24))
+        content = _val(self.text, f)
+        if content:
+            if self.text_side:
+                back = _SIDES[self.text_side]
+            else:
+                mean = sum(contact - pivot for contact in contacts) / len(contacts)
+                back = -mean / (np.linalg.norm(mean) or 1)
+            label = _text(content, 20, INK)
+            # 文字放在转轴背后，按文字自身的宽高留出空隙
+            reach = 0.18 + abs(back[0]) * label.width / 2 + abs(back[1]) * label.height / 2
+            group.add(_keep_inside(label.move_to(pivot + back * reach)))
+        return group
+
+    def bounds(self, f):
+        pivot, contacts = self._points(f)
+        xs = [p[0] for p in [pivot, *contacts]]
+        ys = [p[1] for p in [pivot, *contacts]]
+        return min(xs) - 0.15, min(ys) - 0.15, max(xs) + 0.15, max(ys) + 0.15
 
 
 class Road(Part):

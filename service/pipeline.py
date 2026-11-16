@@ -105,8 +105,10 @@ def _solve(job_id, text, figure, tracker, publish=True):
     tracker.add_usage(usage)
     if publish:
         _publish_solution(job_id, solution)
-    if not solution.get("answers"):
+    # 只靠定性分析的选择题、推理题没有数值答案，有结论也算解出来了
+    if not solution.get("answers") and not str(solution.get("conclusion") or "").strip():
         raise PipelineStop("solving", [f"这道题没有得出答案：{solution.get('pitfall', '原因未知')}"])
+    solution["answers"] = solution.get("answers") or []
     return solution
 
 

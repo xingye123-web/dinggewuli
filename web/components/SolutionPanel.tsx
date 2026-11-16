@@ -24,13 +24,19 @@ function clock(seconds: number) {
 /** 文字解析：模型独立解题的结果，不用等视频生成。答案放在最前面，每一步旁边配视频里对应时刻的截图。 */
 export default function SolutionPanel({ solution, pictures = {}, onSeek }: Props) {
   const answers = solution.answers ?? [];
+  const conclusion = solution.conclusion?.trim();
   return (
     <div className="card solution">
       <h2>文字解析</h2>
 
-      {answers.length > 0 && (
+      {(answers.length > 0 || conclusion) && (
         <>
           <h3>答案</h3>
+          {conclusion && (
+            <p className="conclusion">
+              <Markup text={conclusion} />
+            </p>
+          )}
           <div className="answers">
             {answers.map((answer, index) => (
               <div className="answer" key={index}>

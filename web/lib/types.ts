@@ -36,6 +36,8 @@ export interface Solution {
   knowns?: { name?: string; symbol?: string; value?: number | string; unit?: string }[];
   steps?: { title?: string; explain?: string; formula?: string }[];
   answers?: { label?: string; value?: number | string; unit?: string }[];
+  /** 不是数值的结论：选择题选哪项、比较大小或推理的结果。 */
+  conclusion?: string;
   pitfall?: string;
 }
 

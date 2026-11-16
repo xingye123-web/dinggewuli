@@ -163,7 +163,7 @@ y 也可以是函数，做加减要写成 lambda f: moving_y(f) - 0.5。
 
 ## Block(x, y, w, h, text=None, color='#5DA9E9', name=None, show=())
 
-物块，中心在 (x, y)，宽 w 高 h。text 是写在物块上的文字。
+物块，中心在 (x, y)，宽 w 高 h。text 是写在物块上的文字。w、h 也可以写成 lambda f: ...，比如切去一部分后变矮。
 
 top、bottom 是上下表面的纵坐标，是函数，可以直接当作绳子或连杆端点的 y，但不能做加减。
 
@@ -235,6 +235,18 @@ hook_y 是下端挂钩的纵坐标，可以当作连杆的端点。
 ## Switch(x, y, closed=True, horizontal=True, text=None, text_side='top', name=None, show=())
 
 开关。closed 为真时闭合，可以写成 lambda f: ... 让它在某个阶段合上。
+
+## DoubleThrowSwitch(pivot, contacts, to=1, text=None, text_side=None, name=None, show=())
+
+单刀双掷开关，题目里「S 接 1」「S 接 2」那种。刀片绕 pivot 转，接到 contacts 里的某一个触点。
+
+pivot 是刀片的转轴，contacts 是两个触点，都写成 (x, y)，用 Wire 把它们分别连到电路里，
+比如转轴连电源，触点 1 连只有 R 的支路，触点 2 连 R 与 R0 串联的支路。
+to 是接哪个触点，写 1 或 2，和 contacts 的顺序、题目里的编号一致；
+可以写成 lambda f: 1 if high.active(f) else 2，讲到哪个挡位就拨到哪边。
+触点旁自动标上 1、2。text 是开关的名字，比如 "S"，默认写在转轴背对触点的一侧；
+那一侧有导线时用 text_side（top、bottom、left、right）换个方向。
+两个触点离转轴 0.6 到 1 比较合适，两个触点之间至少隔 0.5。
 
 ## Road(x0, x1, y, length, tick, unit='m')
 

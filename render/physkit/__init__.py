@@ -31,6 +31,7 @@ from .parts import (
     Series,
     SpringScale,
     Switch,
+    DoubleThrowSwitch,
     Under,
     Wire,
 )
@@ -68,6 +69,7 @@ __all__ = [
     "Bulb",
     "Meter",
     "Switch",
+    "DoubleThrowSwitch",
     "Road",
     "Cart",
     "sci",

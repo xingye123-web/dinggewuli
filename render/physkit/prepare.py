@@ -19,8 +19,23 @@ def _scene_traceback(scene_path):
         if Path(item.filename).name == Path(scene_path).name:
             lines.append(f"第 {item.lineno} 行：{item.line}")
     error = sys.exc_info()[1]
+    if not lines:
+        # 错误出在零件内部（多半是某个参数类型不对），只给异常模型不知道改哪里，说出是哪个零件
+        part = _failing_part(sys.exc_info()[2])
+        if part:
+            lines.append(f"出错的位置在零件 {part} 里，检查传给它的参数，比如该写数值的地方写成了函数，或反过来")
     lines.append(f"{type(error).__name__}: {error}")
     return "\n".join(lines)
+
+
+def _failing_part(tb):
+    """异常经过的最后一个 physkit 零件，返回「类名.方法名」。"""
+    found = None
+    for frame, _ in traceback.walk_tb(tb):
+        owner = frame.f_locals.get("self")
+        if owner is not None and type(owner).__module__.startswith("physkit"):
+            found = f"{type(owner).__name__}.{frame.f_code.co_name}"
+    return found
 
 
 def prepare(scene_path, output_dir, speech_path=None):

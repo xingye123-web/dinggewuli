@@ -4,6 +4,7 @@
 这样网页看到标记时，文件一定已经在服务器上了。
 """
 
+import http.client
 import json
 import time
 import urllib.error
@@ -40,8 +41,9 @@ def _request(method, path, data=None, content_type="application/json"):
             last_error = f"HTTP {error.code}：{error.read().decode('utf-8', 'replace')[:200]}"
             if error.code < 500 and error.code != 429:
                 break
-        except (urllib.error.URLError, TimeoutError, ValueError) as error:
-            last_error = str(error)
+        # 回复只传了一半（IncompleteRead）或连接被重置时也再试
+        except (OSError, http.client.HTTPException, ValueError) as error:
+            last_error = f"{type(error).__name__}: {error}"
         time.sleep(2 ** attempt)
     raise HubError(f"连不上服务器：{last_error}")
 

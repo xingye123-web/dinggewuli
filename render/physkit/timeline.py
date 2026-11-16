@@ -19,6 +19,8 @@ TAIL_SECONDS = 1.0  # 讲完后多停一会儿
 CHARS_PER_SECOND = 4.8  # 还没有配音时，用它估算时长
 _ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SLOT = re.compile(r"\{(\w+)\}")
+# 模型有时把数字本身写进花括号，比如 {400}，当成普通数字，不算引用物理量
+_BRACED_NUMBER = re.compile(r"\{(\d+(?:\.\d+)?)\}")
 _UNIT_AFTER_NUMBER = re.compile(r"\d\s*(?:N|J|W|kg|Pa|cm|mm|km|m|s|g|h|A|V|Ω)(?![A-Za-z])")
 _RESERVED = {"index", "clock"}
 _EPSILON = 1e-9
@@ -91,14 +93,14 @@ class Phase:
         """
         if len(text) > MAX_SPEECH_CHARS:
             raise SceneError(f"一句旁白不能超过 {MAX_SPEECH_CHARS} 字，请拆成几句：{text}")
-        self.lines.append({"raw": text, "phase": self})
+        self.lines.append({"raw": _BRACED_NUMBER.sub(r"\1", text), "phase": self})
 
     def board(self, expr):
         """加一行板书，显示在画面右上方，本阶段开始时出现。同一行也会出现在网页面板里，数值随帧变化。
 
         可以用 <sub> 写下标，比如 "W<sub>有</sub> = Gh = {G} N × {h} m = {W_use} J"。
         """
-        self.boards.append(expr)
+        self.boards.append(_BRACED_NUMBER.sub(r"\1", expr))
 
     def progress(self, f):
         """这一帧在本阶段的进度：开始前是 0，结束后是 1。只有声明了 min_seconds 的阶段才会连续变化。"""
@@ -282,7 +284,10 @@ class Timeline:
     def _check_slots(text, known, where):
         for slot in _SLOT.findall(text):
             if slot not in known:
-                raise SceneError(f"{where}「{text}」里的 {{{slot}}} 没有对应的物理量或常数")
+                raise SceneError(
+                    f"{where}「{text}」里的 {{{slot}}} 没有对应的物理量或常数。"
+                    f"已声明的有：{'、'.join(sorted(known))}。用其中一个，或者先用 timeline.quantity 声明它"
+                )
 
     def _fill_text(self):
         for line in self.lines:

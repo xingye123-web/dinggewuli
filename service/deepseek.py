@@ -1,5 +1,6 @@
 """DeepSeek 接口。负责看图转写、解题和写场景代码。"""
 
+import http.client
 import json
 import time
 import urllib.error
@@ -44,8 +45,9 @@ def chat(messages, model, json_mode=False, effort=""):
             last_error = f"HTTP {error.code}：{detail}"
             if error.code not in RETRY_CODES:
                 break
-        except (urllib.error.URLError, TimeoutError, ValueError, KeyError, DeepSeekError) as error:
-            last_error = str(error)
+        # 网络抖动时回复可能只传了一半（IncompleteRead）或连接被重置，这些都值得再试，不能让整道题失败
+        except (OSError, http.client.HTTPException, ValueError, KeyError, DeepSeekError) as error:
+            last_error = f"{type(error).__name__}: {error}"
         time.sleep(2 ** attempt * 2)
     raise DeepSeekError(f"调用 {model} 失败：{last_error}")
 

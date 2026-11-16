@@ -6,6 +6,7 @@
 import base64
 import hashlib
 import io
+import http.client
 import json
 import time
 import urllib.error
@@ -44,8 +45,9 @@ def _request(text):
             last_error = f"HTTP {error.code}：{error.read().decode('utf-8', 'replace')[:200]}"
             if error.code not in RETRY_CODES:
                 break
-        except (urllib.error.URLError, TimeoutError, ValueError) as error:
-            last_error = str(error)
+        # 回复只传了一半（IncompleteRead）或连接被重置时也再试
+        except (OSError, http.client.HTTPException, ValueError) as error:
+            last_error = f"{type(error).__name__}: {error}"
         time.sleep(2 ** attempt * 2)
     raise NarrationError(f"配音失败：{last_error}")
 
