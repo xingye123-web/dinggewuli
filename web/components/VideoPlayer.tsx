@@ -65,7 +65,11 @@ export default function VideoPlayer({ timeline, videoSrc, pending, ref }: Props)
 
   // 大的先放，小的盖在上面，水里的物块才点得到
   const clickable = useMemo(() => {
-    const area = (id: string) => timeline.regions[id][0][2] * timeline.regions[id][0][3];
+    // 开头读题时零件被题目盖住、范围是 0，按最后一帧的大小排
+    const area = (id: string) => {
+      const last = timeline.regions[id][timeline.regions[id].length - 1];
+      return last[2] * last[3];
+    };
     return Object.keys(timeline.objects).sort((a, b) => area(b) - area(a));
   }, [timeline]);
 
@@ -276,6 +280,8 @@ export default function VideoPlayer({ timeline, videoSrc, pending, ref }: Props)
             {showPaused &&
               clickable.map((id) => {
                 const [x, y, width, height] = timeline.regions[id][frame];
+                // 读题、换小问时题目盖住了实物图，零件不能点
+                if (width <= 0 || height <= 0) return null;
                 const name = timeline.objects[id].name;
                 return (
                   <button
@@ -302,10 +308,14 @@ export default function VideoPlayer({ timeline, videoSrc, pending, ref }: Props)
               {timeline.phases.map((phase) => (
                 <span
                   key={`${phase.label}-${phase.t0}`}
-                  className={phase.t0 <= seconds && seconds < phase.t1 ? "now" : ""}
+                  className={[
+                    phase.t0 <= seconds && seconds < phase.t1 ? "now" : "",
+                    phase.kind === "switch" ? "question-start" : "",
+                  ].join(" ")}
                   style={{ flexGrow: phase.t1 - phase.t0, flexBasis: 0 }}
                 >
-                  {phase.label}
+                  {/* 擦板书的停顿只有两秒，不写名字，免得挤成一团 */}
+                  {phase.kind === "erase" ? "" : phase.label}
                 </span>
               ))}
             </div>

@@ -84,6 +84,7 @@ class Phase:
         self.replay_range = (0.0, 1.0)
         self.lines = []
         self.boards = []
+        self.board_anchors = []
         self.begin = 0.0
         self.seconds = 0.0
 
@@ -114,6 +115,8 @@ class Phase:
         可以用 <sub> 写下标，比如 "W<sub>有</sub> = Gh = {G} N × {h} m = {W_use} J"。
         """
         self.boards.append(_BRACED_NUMBER.sub(r"\1", expr))
+        # 这行板书跟着它前面那句旁白一起出现，边说边写；前面没有旁白时跟着本阶段第一句
+        self.board_anchors.append(len(self.lines) - 1)
 
     @property
     def span(self):
@@ -592,10 +595,19 @@ class Timeline:
         for phase in self.phases:
             index = self.frame_at(phase.end.seconds)
             cursor = phase.begin + 0.1
-            for expr in phase.boards:
+            # 同一句旁白配了几行板书时，这句话的时长平分给它们
+            shares = {}
+            for anchor in phase.board_anchors:
+                shares[max(anchor, 0)] = shares.get(max(anchor, 0), 0) + 1
+            for expr, anchor in zip(phase.boards, phase.board_anchors):
                 text = _SLOT.sub(lambda m: self._spoken_value(m.group(1), index, board_number), expr)
                 visible = len(re.sub(r"</?su[bp]>|\s", "", text))
                 reveal = min(max(visible / REVEAL_CHARS_PER_SECOND, 0.4), 1.6)
+                if phase.lines:
+                    line = phase.lines[max(anchor, 0)]
+                    # 跟着这句旁白开始写，写的时间铺满这句话，声音和字一起出现、一起结束
+                    reveal = min(max(line["seconds"] * 0.9 / shares[max(anchor, 0)], 0.5), 4.0)
+                    cursor = max(cursor, line["start"])
                 self.board_lines.append(
                     {
                         "expr": expr,

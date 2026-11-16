@@ -1207,6 +1207,12 @@ input:focus {
   color: var(--console-ink);
 }
 
+/* 每一问从这里开始，左边一道竖线 */
+.phase-labels span.question-start {
+  padding-left: 5px;
+  border-left: 2px solid var(--console-ink);
+}
+
 .phase-bar {
   height: 8px;
   margin-top: 6px;

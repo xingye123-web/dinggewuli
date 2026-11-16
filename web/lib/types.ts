@@ -59,7 +59,8 @@ export interface Timeline {
   quantities: Quantity[];
   constants: Record<string, number>;
   formulas: { expr: string }[];
-  phases: { label: string; t0: number; t1: number }[];
+  /** kind：lesson 讲解；reading 读题；switch 换到某一问；erase 一问讲完后停一下、擦板书。旧视频没有这两个字段。 */
+  phases: { label: string; t0: number; t1: number; kind?: string; question?: number | null }[];
   events: { t: number; label: string }[];
   steps: { t: number; title: string; text: string }[];
   answers: { id: string; label: string; value: number | null; unit: string }[];

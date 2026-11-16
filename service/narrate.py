@@ -8,6 +8,7 @@ import hashlib
 import io
 import http.client
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -26,6 +27,82 @@ _MAX_TOKEN_GAP = 6  # 时间戳的词和文字对不上时，最多往后找这�
 
 class NarrationError(Exception):
     pass
+
+
+# ---------- 数字读法 ----------
+# 阿拉伯数字交给配音引擎自己读不可靠（有时逐位读、有时一带而过），送去合成前先写成中文读法，
+# 比如 240 读成二百四十、2.5 读成二点五。字幕和板书仍显示阿拉伯数字。
+
+_DIGITS = "零一二三四五六七八九"
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _four(value):
+    """0 < value < 10000 的读法，比如 1100 → 一千一百，1005 → 一千零五。"""
+    text, need_zero = "", False
+    for power, unit in ((3, "千"), (2, "百"), (1, "十"), (0, "")):
+        digit = value // 10**power % 10
+        if digit == 0:
+            need_zero = bool(text)
+            continue
+        if need_zero:
+            text += "零"
+            need_zero = False
+        text += _DIGITS[digit] + unit
+    return text
+
+
+def integer_words(value):
+    if value == 0:
+        return "零"
+    groups = [(value // 10**8, "亿"), (value // 10**4 % 10**4, "万"), (value % 10**4, "")]
+    text, started, gap = "", False, False
+    for number, unit in groups:
+        if number == 0:
+            gap = started
+            continue
+        if started and (gap or number < 1000):
+            text += "零"
+        text += _four(number) + unit
+        started, gap = True, False
+    # 10 到 19 读成十、十五，不读一十
+    return text[1:] if text.startswith("一十") else text
+
+
+def number_words(token, followed_by="", preceded_by=""):
+    """一个数字串的读法。年份、0 开头的编号逐位读；量词前的 2 读「两」，序号和标号里的 2 读「二」。"""
+    if "." not in token and (followed_by.startswith("年") and len(token) == 4 or len(token) > 1 and token[0] == "0"):
+        return "".join(_DIGITS[int(d)] for d in token)
+    whole, _, fraction = token.partition(".")
+    words = integer_words(int(whole))
+    is_label = preceded_by in "第接点" and preceded_by != "" or preceded_by.isascii() and preceded_by.isalpha()
+    if not fraction and not is_label:
+        if whole == "2" and followed_by and "一" <= followed_by <= "鿿":
+            words = "两"
+        elif words[:2] in ("二千", "二万", "二亿"):
+            words = "两" + words[1:]
+    if fraction:
+        words += "点" + "".join(_DIGITS[int(d)] for d in fraction)
+    return words
+
+
+def spoken_digits(text):
+    """把文字里的数字换成中文读法，返回 (换过的文字, 每个字对应原文的第几个字)。"""
+    out, origin, cursor = [], [], 0
+    for match in _NUMBER.finditer(text):
+        for index in range(cursor, match.start()):
+            out.append(text[index])
+            origin.append(index)
+        words = number_words(match.group(), text[match.end():match.end() + 1], text[match.start() - 1:match.start()])
+        for k, char in enumerate(words):
+            out.append(char)
+            # 读法里的字按比例对回原来的数字，时间戳才能对上
+            origin.append(match.start() + min(k * len(match.group()) // len(words), len(match.group()) - 1))
+        cursor = match.end()
+    for index in range(cursor, len(text)):
+        out.append(text[index])
+        origin.append(index)
+    return "".join(out), origin
 
 
 def _request(text):
@@ -82,15 +159,21 @@ def synthesize_all(lines, on_progress=None):
     # 每句结尾补上句号，句子之间才会停顿，也不会把两句读成一句
     spoken = [line if line[-1:] in "。！？；，,.!?;" else line + "。" for line in lines]
     joined = "".join(spoken)
-    digest = hashlib.sha256(f"{settings.BREEZE_VOICE}|{settings.BREEZE_SPEED}|{joined}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{settings.BREEZE_VOICE}|{settings.BREEZE_SPEED}|words1|{joined}".encode("utf-8")).hexdigest()
     cache = settings.ARTIFACTS_DIR / "_speech" / f"{digest}.json"
     if cache.exists():
         result = json.loads(cache.read_text(encoding="utf-8"))
     else:
-        response = _request(joined)
+        said, origin = spoken_digits(joined)
+        response = _request(said)
         audio = base64.b64decode(response["audio_base64"])
         length = MP3(io.BytesIO(audio)).info.length
-        times = _char_times(joined, response.get("word_timestamps", []))
+        # 时间戳是按换成中文读法后的文字给的，对回原文：原文每个字取它对应的读法里最早的那个时刻
+        said_times = _char_times(said, response.get("word_timestamps", []))
+        times = [None] * len(joined)
+        for moment, index in zip(said_times, origin):
+            if moment is not None and (times[index] is None or moment < times[index]):
+                times[index] = moment
 
         offsets = []
         cursor = 0

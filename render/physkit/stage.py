@@ -206,9 +206,16 @@ class Stage:
     def regions(self):
         """每个可点击零件在每一帧的范围，换算成视频画面的百分比 [x, y, 宽, 高]。"""
         result = {}
+        card = next((part for part in self.overlays if isinstance(part, ProblemCard)), None)
+        # 题目放大盖住实物图时零件看不见，不能点，范围记成 0
+        hidden = [card is not None and card.alpha(index / self.timeline.fps) > 0.5
+                  for index in range(self.timeline.frame_count)]
         for key, part in self._clickable():
             column = []
             for index in range(self.timeline.frame_count):
+                if hidden[index]:
+                    column.append([0, 0, 0, 0])
+                    continue
                 x0, y0, x1, y1 = part.bounds(self.timeline.frame(index))
                 column.append(
                     [
