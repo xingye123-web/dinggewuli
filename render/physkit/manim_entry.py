@@ -5,12 +5,30 @@
 
 import os
 
-from manim import Scene, ValueTracker, always_redraw, linear
+from manim import Scene, ValueTracker, linear
 
 from physkit.loader import load_scene
 
 timeline, stage = load_scene(os.environ["PHYSKIT_SCENE"], os.environ.get("PHYSKIT_SPEECH"))
 firsts, _ = timeline.unique_frames()
+
+
+def _redraw(part, current):
+    """和 always_redraw 一样每帧重画，但零件报告画面没变（_redraw_key 和上一帧相同）时跳过。"""
+    frame = current()
+    mobject = part.draw(frame)
+    last = [part._redraw_key(frame)]
+
+    def update(target):
+        frame = current()
+        key = part._redraw_key(frame)
+        if key is not None and key == last[0]:
+            return
+        target.become(part.draw(frame))
+        last[0] = key
+
+    mobject.add_updater(update)
+    return mobject
 
 
 class Problem(Scene):
@@ -32,7 +50,7 @@ class Problem(Scene):
             if part.static:
                 self.add(part.draw(None))
             else:
-                self.add(always_redraw(lambda part=part: part.draw(current())))
+                self.add(_redraw(part, current))
 
         self.play(
             position.animate.set_value(first + run_time * timeline.fps),

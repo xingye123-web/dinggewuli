@@ -6,7 +6,7 @@
 import re
 
 import numpy as np
-from manim import Rectangle, Text, VGroup
+from manim import Rectangle, Text, VGroup, VMobject
 
 from . import handdrawn
 from .parts import CAPTION_TOP, FONT, INK, Part, _BACKGROUND, _point
@@ -130,8 +130,14 @@ class _Layout:
         self.text = text.strip()
         size = FULL_FONT
         while True:
-            rows = self._wrap(size)
-            texts = VGroup(*[Text(row, font=FONT, font_size=size, color=INK) for row in rows])
+            # 按字形宽度估的行宽会偏小（中文标点占整字宽但字形窄），排出来超宽就收窄重排，最多三次
+            limit = FULL_WIDTH
+            for _ in range(3):
+                rows = self._wrap(size, limit)
+                texts = VGroup(*[Text(row, font=FONT, font_size=size, color=INK) for row in rows])
+                if texts.width <= FULL_WIDTH:
+                    break
+                limit -= max(row.width for row in texts) - FULL_WIDTH + 0.05
             texts.arrange(_point(0, -1), aligned_edge=_point(-1, 0), buff=LINE_SPACING * size / FULL_FONT)
             if texts.height <= FULL_MAX_HEIGHT or size <= 20:
                 break
@@ -145,7 +151,7 @@ class _Layout:
             # 个别字符（比如组合符号）字形数对不上时，圈注退化成不画，不影响读题
             self.glyphs = []
 
-    def _wrap(self, size):
+    def _wrap(self, size, limit=None):
         """先整段排一次量出每个字的宽度，再按宽度断行，句首不放标点。"""
         source = self.text.replace("\n", "")
         whole = Text(source, font=FONT, font_size=size)
@@ -160,7 +166,7 @@ class _Layout:
                 widths.append(glyph.width + size / FULL_FONT * 0.05 if glyph is not None else size / FULL_FONT * 0.4)
         rows, row, used = [], "", 0.0
         for char, width in zip(chars, widths):
-            if used + width > FULL_WIDTH and row and char not in _NO_LINE_START:
+            if used + width > (limit or FULL_WIDTH) and row and char not in _NO_LINE_START:
                 rows.append(row.rstrip())
                 row, used = "", 0.0
                 if char.isspace():
@@ -233,6 +239,17 @@ def _smooth(x):
     return x * x * (3 - 2 * x)
 
 
+def _plain_copy(group):
+    """把文字拆成只有轮廓和颜色的普通 VMobject，画出来一样，拷贝快得多。"""
+    plain = VGroup()
+    for piece in group.family_members_with_points():
+        shape = VMobject()
+        shape.set_points(piece.points.copy())
+        shape.match_style(piece, family=False)
+        plain.add(shape)
+    return plain
+
+
 class ProblemCard(Part):
     """题目卡片：读题时铺满画面，读完缩到右上角；换小问时放大、划出这一问，再缩回去。"""
 
@@ -265,6 +282,8 @@ class ProblemCard(Part):
                     shape.set_color(handdrawn.HIGHLIGHT)
                     self.question_lines[switch["question"]] = (switch["t_underline"], switch["t_end"], shape)
         self._cache = {}
+        # 题目文字的轻量副本：只留轮廓和颜色。Text 带着大量排版信息，长题目每帧深拷贝一次要近一秒
+        self._plain = _plain_copy(self.layout.texts)
 
     def alpha(self, t):
         """1 是铺满画面，0 是右上角的小图。"""
@@ -295,7 +314,7 @@ class ProblemCard(Part):
         return current
 
     def _content(self, t, alpha):
-        texts = self.layout.texts.copy()
+        texts = self._plain.copy()
         if alpha < 0.5:
             texts.set_color(THUMB_COLOR)
         group = VGroup(texts)
@@ -307,6 +326,22 @@ class ProblemCard(Part):
         if line:
             group.add(handdrawn.partial(line[1], (t - line[0]) / UNDERLINE_SECONDS).copy())
         return group
+
+    def _redraw_key(self, f):
+        """题目卡片停着不动时（大多数帧），返回它的状态。题目长时重画一次要几百毫秒，渲染时靠它跳过。
+
+        只看卡片自己的动画（放大缩小、圈注、划线），板书逐字写出时卡片并不动。
+        """
+        t = f.clock
+        alpha = self.alpha(t)
+        if alpha not in (0.0, 1.0):
+            return None
+        if any(0 < (t - start) / MARK_SECONDS < 1 for start, _ in self.marks):
+            return None
+        line = self._question_line(t)
+        if line and (t - line[0]) / UNDERLINE_SECONDS < 1:
+            return None
+        return (alpha, sum(1 for start, _ in self.marks if t >= start + MARK_SECONDS), line and line[0])
 
     def draw(self, f):
         t = f.clock

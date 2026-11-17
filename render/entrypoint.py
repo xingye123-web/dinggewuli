@@ -24,7 +24,7 @@ WORK_ROOT = os.environ.get("PHYSKIT_WORK_ROOT") or None
 WIDTH, HEIGHT = 1920, 1080
 FPS = 30
 PREPARE_TIMEOUT = 120
-RENDER_TIMEOUT = 600
+RENDER_TIMEOUT = 840  # 外层 service 给整个渲染 900 秒，这里留出打包和传回的时间
 ENCODE_ARGS = [
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p",
     "-g", "15", "-keyint_min", "15", "-sc_threshold", "0", "-movflags", "+faststart",
