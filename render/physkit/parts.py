@@ -108,6 +108,10 @@ class Part:
         """不该被文字压住的线段，每条写成 (x0, y0, x1, y1)。"""
         return []
 
+    def _redraw_key(self, f):
+        """画面没变时返回和上一帧相同的可哈希值，渲染时就不重画；返回 None 表示每帧都重画。"""
+        return None
+
 
 class _Beam(Part):
     static = True
@@ -159,6 +163,65 @@ class Rod(Part):
             color=self.color,
             stroke_width=self.width,
         )
+
+
+class Spring(Part):
+    """轻质弹簧，连接 start 和 end 两点，点写成 (x, y)，坐标可以是 lambda f: ...，比如物块的 bottom、top。
+
+    圈数固定，两端跟着物体走：被拉长时圈变稀，被压缩时圈变密，伸长和压缩直接看得出来。
+    弹簧多长由物理量决定（原长加伸长量，再乘画面比例），零件只负责画。
+    coils 是圈数，width 是弹簧的宽度。竖直、水平、斜放都可以。
+    """
+
+    LEAD = 0.12  # 两端各留一小段直线，像挂钩
+
+    def __init__(self, start, end, coils=8, width=0.32, color=STEEL, name=None, show=()):
+        super().__init__(name, show)
+        self.start, self.end, self.coils, self.width, self.color = start, end, coils, width, color
+
+    def _ends(self, f):
+        a = np.array([_val(self.start[0], f), _val(self.start[1], f)], dtype=float)
+        b = np.array([_val(self.end[0], f), _val(self.end[1], f)], dtype=float)
+        return a, b
+
+    def draw(self, f):
+        a, b = self._ends(f)
+        span = b - a
+        length = float(np.hypot(*span))
+        if length < 1e-3:
+            return VGroup()
+        axis = span / length
+        normal = np.array([-axis[1], axis[0]])
+        lead = min(self.LEAD, length * 0.15)
+        body = length - 2 * lead
+        points = [a, a + axis * lead]
+        teeth = 2 * self.coils
+        for i in range(teeth):
+            side = 1 if i % 2 == 0 else -1
+            points.append(a + axis * (lead + body * (i + 0.5) / teeth) + normal * side * self.width / 2)
+        points += [b - axis * lead, b]
+        zigzag = VMobject(stroke_color=self.color, stroke_width=3)
+        zigzag.set_points_as_corners([_point(*p) for p in points])
+        return zigzag
+
+    def bounds(self, f):
+        a, b = self._ends(f)
+        pad = self.width / 2 + 0.08
+        return min(a[0], b[0]) - pad, min(a[1], b[1]) - pad, max(a[0], b[0]) + pad, max(a[1], b[1]) + pad
+
+    def edges(self, f):
+        a, b = self._ends(f)
+        return [(a[0], a[1], b[0], b[1])]
+
+    def problems(self, f):
+        a, b = self._ends(f)
+        length = float(np.hypot(*(b - a)))
+        if length < 0.04 * self.coils + 2 * self.LEAD:
+            return [
+                f"弹簧太短（画面长度 {length:.2f}），{self.coils} 圈会挤成一团。"
+                "放大画面比例让两端离远一些，或者把 coils 调小"
+            ]
+        return []
 
 
 class Pulley(Part):

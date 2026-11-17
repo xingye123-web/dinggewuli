@@ -170,6 +170,14 @@ length、height 是斜面的长和高（米）。width 是坡面水平方向在�
 
 刚性连杆，连接 start 和 end 两点，比如滑轮的支架、挂钩。点写成 (x, y)。
 
+## Spring(start, end, coils=8, width=0.32, color='#AEB8C4', name=None, show=())
+
+轻质弹簧，连接 start 和 end 两点，点写成 (x, y)，坐标可以是 lambda f: ...，比如物块的 bottom、top。
+
+圈数固定，两端跟着物体走：被拉长时圈变稀，被压缩时圈变密，伸长和压缩直接看得出来。
+弹簧多长由物理量决定（原长加伸长量，再乘画面比例），零件只负责画。
+coils 是圈数，width 是弹簧的宽度。竖直、水平、斜放都可以。
+
 ## Pulley(x, y, r=0.35, turn=0, name=None, show=())
 
 滑轮，圆心在 (x, y)，半径 r。turn 是转过的角度（弧度）。
