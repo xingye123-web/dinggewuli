@@ -36,12 +36,12 @@
 | ② 解题 | 独立解出每一问，给出已知量、步骤、答案和易错点；选择题给出选哪项和理由 | DeepSeek（高推理强度） |
 | ③ 写代码 | 按题型从示例库检索最接近的示例，连同零件手册交给模型，写出调用固定零件库的场景代码 | DeepSeek（代码生成） |
 | ④ 检查 | AST 静态检查（禁止危险调用）→ Docker 隔离容器里预演布局（文字重叠、出界、压线）→ 代码算出的答案和独立解答逐项比对 | 检查结果作为反馈交回模型自我修正 |
-| ⑤ 配音渲染 | 旁白整段合成，按逐字时间戳切回每句；数字先转成中文读法；Manim 只渲染画面真正变化的帧 | Breeze Blue 语音合成 |
+| ⑤ 配音渲染 | 旁白整段合成（过长时按整句分批），按逐字时间戳切回每句；数字先转成中文读法；Manim 只渲染画面真正变化的帧 | Breeze Blue 语音合成 |
 | ⑥ 播放 | 视频和面板读同一份逐帧数据，暂停时读数和画面严格一致 | — |
 
 几个关键设计：
 
-- **固定零件 + 模型写代码**：滑轮组、杠杆、斜面、烧杯、弹簧测力计、电路元件等画法写死在零件库里（`render/physkit`），模型只决定用哪些零件、放在哪、和哪个物理量绑定。画面稳定，又能覆盖没见过的题。
+- **固定零件 + 模型写代码**：滑轮组、杠杆、斜面、烧杯、弹簧、弹簧测力计、电路元件等画法写死在零件库里（`render/physkit`），模型只决定用哪些零件、放在哪、和哪个物理量绑定。画面稳定，又能覆盖没见过的题。
 - **两路独立计算互相核对**：解题模型和场景代码各算一遍答案，不一致就不发布，按题目要求的位数比较。
 - **安全可控**：模型写的代码只在断网、只读、无特权、限内存限进程的 Docker 容器里运行（`service/runner.py`，`python -m service.isolation_test` 可验证）。
 - **缺零件会被记下来**：模型遇到零件库没有的东西时先用基础零件拼，并写下需求，维护者据此补零件。
@@ -97,6 +97,7 @@ docker build -t physics-renderer:0.1 render
 
 # 4. 配置：照 .env.example 设置环境变量，密钥只放在环境变量里
 #    CHUANZHI_DEEPSEEK_API_KEY、CHUANZHI_BREEZE_API_KEY 必填
+#    网页的配置在 web/.env.example：下面的 dev.ps1 会自动生成 web/.env.local，单独部署网页时照模板填写
 
 # 5. 本机启动接口、网页和 worker（Windows），打开 http://127.0.0.1:3100
 powershell -File scripts/dev.ps1
@@ -113,6 +114,13 @@ powershell -File scripts/dev.ps1
 
 ```bash
 .venv/Scripts/python scripts/check_scene.py render/examples/pulley_n3.py --render
+```
+
+代码风格检查（Python 的规则写在 `ruff.toml`）：
+
+```bash
+.venv/Scripts/pip install ruff==0.17.5 && .venv/Scripts/python -m ruff check
+cd web && npm run lint && npx tsc --noEmit
 ```
 
 线上部署：服务器只需要 `service/requirements-server.txt`，`bash scripts/deploy.sh` 构建网页并安装到服务器；笔记本上运行 `scripts/worker.ps1` 领任务。
