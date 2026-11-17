@@ -1893,6 +1893,15 @@ kbd {
   border-radius: 6px;
 }
 
+/* 等宽字体没有中文，W总、F浮 这类中文下标换回正文字体，否则会落到一个很难看的后备字体上 */
+.solve .eq sub,
+.solve .eq sup,
+.formula sub,
+.formula sup,
+.console-bar .clock sub {
+  font-family: var(--sans);
+}
+
 .pitfall {
   margin: 0;
   padding: 12px 16px;
