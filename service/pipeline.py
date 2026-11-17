@@ -13,8 +13,8 @@ from . import deepseek, narrate, part_requests, prompts, runner, settings, step_
 from .deepseek import DeepSeekError
 from .narrate import NarrationError
 
-_CODE_BLOCK = re.compile(r"```(?:python)?\s*\n(.*?)```", re.S)
-_UNSUPPORTED = re.compile(r"^\s*UNSUPPORTED[:：]\s*(.+)", re.S)
+_CODE_BLOCK = re.compile(r"```(?:python)?\s*\n(.*?)```", re.DOTALL)
+_UNSUPPORTED = re.compile(r"^\s*UNSUPPORTED[:：]\s*(.+)", re.DOTALL)
 ANSWER_TOLERANCE = 0.0005  # 相对误差，比这大说明中间步骤约分带偏了答案
 
 

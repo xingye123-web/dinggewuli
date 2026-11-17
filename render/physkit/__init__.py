@@ -1,5 +1,6 @@
 """初中物理动画零件库。模型生成的代码只能使用这里公开的名字。"""
 
+from .numbers import sci
 from .parts import (
     ACCENT,
     INK,
@@ -12,6 +13,7 @@ from .parts import (
     Bulb,
     Cart,
     Ceiling,
+    DoubleThrowSwitch,
     ForceArrow,
     Ground,
     Incline,
@@ -26,19 +28,17 @@ from .parts import (
     Rheostat,
     Road,
     Rod,
-    Spring,
     Rope,
     Ruler,
     Series,
+    Spring,
     SpringScale,
     Switch,
-    DoubleThrowSwitch,
     Under,
     Wire,
 )
-from .numbers import sci
 from .stage import Stage
-from .timeline import SceneError, Timeline
+from .timeline import Timeline
 
 KIT_VERSION = "0.2.0"
 

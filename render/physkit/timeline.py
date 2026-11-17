@@ -40,7 +40,7 @@ class SceneError(Exception):
 class Frame:
     """某一帧的取值。f.h 是物理量 h 在这一帧的值，常数也能这样读。"""
 
-    __slots__ = ("_columns", "_constants", "index", "clock")
+    __slots__ = ("_columns", "_constants", "clock", "index")
 
     def __init__(self, columns, constants, index, fps):
         self._columns = columns
@@ -299,7 +299,7 @@ class Timeline:
         self._check_references()
         self._fill_text()
         if speech is not None:
-            for line, spoken in zip(self.lines, speech):
+            for line, spoken in zip(self.lines, speech, strict=True):
                 if line["text"] != spoken["text"]:
                     raise SceneError(f"旁白里的数值依赖了动画时长：配音是「{spoken['text']}」，现在是「{line['text']}」")
         self._build_captions(speech)
@@ -349,7 +349,7 @@ class Timeline:
             following = guesses[index] or following
             guesses[index] = following
         current = 1
-        for phase, guess in zip(phases, guesses):
+        for phase, guess in zip(phases, guesses, strict=True):
             current = max(current, guess or current)  # 不往回跳
             phase.question = current
 
@@ -361,7 +361,7 @@ class Timeline:
         if self._inserted:
             return
         self._inserted = True
-        from .lesson import QUESTION_NAMES, spoken_problem, split_questions, split_sentences
+        from .lesson import QUESTION_NAMES, split_questions, split_sentences, spoken_problem
 
         lessons = list(self.phases)
         self._assign_questions(lessons)
@@ -507,9 +507,9 @@ class Timeline:
     def _check_digits(q, column):
         """暂停时要能读到准确的数，小量没有小数位时，1.2 米会显示成 1 米。"""
         values = [value for value in column if value is not None]
-        if q["digits"] == 0 and values and max(values) - min(values) < 20:
-            if any(abs(value - round(value)) > 0.01 for value in values):
-                raise SceneError(f"物理量 {q['id']} 有小数，变化范围也小，digits 不能是 0，请用 2")
+        if (q["digits"] == 0 and values and max(values) - min(values) < 20
+                and any(abs(value - round(value)) > 0.01 for value in values)):
+            raise SceneError(f"物理量 {q['id']} 有小数，变化范围也小，digits 不能是 0，请用 2")
 
     def _clean(self, id, raw, index):
         if raw is None:
@@ -549,7 +549,7 @@ class Timeline:
     def _fill_text(self):
         for line in self.lines:
             index = self.frame_at(line["phase"].end.seconds)
-            line["text"] = _SLOT.sub(lambda m: self._spoken_value(m.group(1), index, spoken_number), line["raw"])
+            line["text"] = _SLOT.sub(lambda m, index=index: self._spoken_value(m.group(1), index, spoken_number), line["raw"])
             if line["phase"].kind != "lesson":
                 continue  # 读题和换小问的话是系统写的，不拿模型的规矩去查
             if _UNIT_AFTER_NUMBER.search(line["text"]):
@@ -599,8 +599,8 @@ class Timeline:
             shares = {}
             for anchor in phase.board_anchors:
                 shares[max(anchor, 0)] = shares.get(max(anchor, 0), 0) + 1
-            for expr, anchor in zip(phase.boards, phase.board_anchors):
-                text = _SLOT.sub(lambda m: self._spoken_value(m.group(1), index, board_number), expr)
+            for expr, anchor in zip(phase.boards, phase.board_anchors, strict=True):
+                text = _SLOT.sub(lambda m, index=index: self._spoken_value(m.group(1), index, board_number), expr)
                 visible = len(re.sub(r"</?su[bp]>|\s", "", text))
                 reveal = min(max(visible / REVEAL_CHARS_PER_SECOND, 0.4), 1.6)
                 if phase.lines:

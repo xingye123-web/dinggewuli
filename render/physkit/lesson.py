@@ -9,7 +9,7 @@ import numpy as np
 from manim import Rectangle, Text, VGroup, VMobject
 
 from . import handdrawn
-from .parts import CAPTION_TOP, FONT, INK, Part, _BACKGROUND, _point
+from .parts import _BACKGROUND, CAPTION_TOP, FONT, INK, Part, _point
 
 # 读题时题目铺在画面中间；缩小后放在右侧一列的最上面，板书接在它下面
 FULL_WIDTH = 12.4
@@ -165,7 +165,7 @@ class _Layout:
                 glyph = next(glyphs, None)
                 widths.append(glyph.width + size / FULL_FONT * 0.05 if glyph is not None else size / FULL_FONT * 0.4)
         rows, row, used = [], "", 0.0
-        for char, width in zip(chars, widths):
+        for char, width in zip(chars, widths, strict=True):
             if used + width > (limit or FULL_WIDTH) and row and char not in _NO_LINE_START:
                 rows.append(row.rstrip())
                 row, used = "", 0.0

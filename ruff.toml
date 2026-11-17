@@ -1,0 +1,20 @@
+# Python 代码风格检查：.venv/Scripts/python -m ruff check
+line-length = 120
+target-version = "py312"
+extend-exclude = ["spike"]  # 立项时的技术验证脚本，不属于正式代码
+
+[lint]
+# 默认规则之外，再查导入顺序、常见隐患、旧写法和可简化的写法
+extend-select = ["I", "B", "UP", "SIM"]
+# 中文注释和提示词里的长句不强行折行
+ignore = [
+    "E501",
+    "RET501",  # 接口方法写明 return None，比裸 return 更好读
+    "SIM108",  # 条件长时 if/else 比三元表达式好读
+]
+
+[lint.per-file-ignores]
+# 示例是给模型看的场景代码，按约定整体导入零件库、用 lambda 写随帧变化的量
+"render/examples/*.py" = ["F403", "F405", "E731"]
+# 零件手册按 __all__ 的顺序生成，顺序是刻意排的，不按字母排序
+"render/physkit/__init__.py" = ["RUF022"]

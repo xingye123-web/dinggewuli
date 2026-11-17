@@ -3,13 +3,26 @@
 位置、长度、文字等参数都可以写成数值，或写成 lambda f: ... 让它随帧变化。
 """
 
+import math
 import os
 import re
 
 import numpy as np
-import math
-
-from manim import Arc, Arrow, Axes, Circle, DashedLine, Dot, Line, MarkupText, Polygon, Rectangle, Text, VGroup, VMobject
+from manim import (
+    Arc,
+    Arrow,
+    Axes,
+    Circle,
+    DashedLine,
+    Dot,
+    Line,
+    MarkupText,
+    Polygon,
+    Rectangle,
+    Text,
+    VGroup,
+    VMobject,
+)
 
 from .numbers import needs_scientific, scientific
 
@@ -51,11 +64,11 @@ def _keep_inside(label):
 def _text_fit_problems(content, label, width, height):
     """物块上的字放不下时，要说清是宽度还是高度不够，模型才知道该加宽物块，还是把字挪到旁边。"""
     if label.width > width:
-        return [f"物块上的文字「{content}」太宽：文字宽 {label.width:.2f}，物块宽 {width:.2f}。"
-                "把物块加宽，或者把文字用 Readout 放到物块旁边"]
+        return [(f"物块上的文字「{content}」太宽：文字宽 {label.width:.2f}，物块宽 {width:.2f}。"
+                 "把物块加宽，或者把文字用 Readout 放到物块旁边")]
     if label.height > height:
-        return [f"物块上的文字「{content}」太高：文字高 {label.height:.2f}，物块只有 {height:.2f} 高。"
-                "盖板、木板这类薄物块不要在上面写字，把文字用 Readout 放到物块旁边"]
+        return [(f"物块上的文字「{content}」太高：文字高 {label.height:.2f}，物块只有 {height:.2f} 高。"
+                 "盖板、木板这类薄物块不要在上面写字，把文字用 Readout 放到物块旁边")]
     return []
 
 
@@ -218,8 +231,8 @@ class Spring(Part):
         length = float(np.hypot(*(b - a)))
         if length < 0.04 * self.coils + 2 * self.LEAD:
             return [
-                f"弹簧太短（画面长度 {length:.2f}），{self.coils} 圈会挤成一团。"
-                "放大画面比例让两端离远一些，或者把 coils 调小"
+                (f"弹簧太短（画面长度 {length:.2f}），{self.coils} 圈会挤成一团。"
+                 "放大画面比例让两端离远一些，或者把 coils 调小")
             ]
         return []
 
@@ -327,8 +340,8 @@ class Rope(Part):
         for number, (x0, y0, x1, y1) in enumerate(self.line_pieces(f), start=1):
             if abs(x0 - x1) > 0.03 and abs(y0 - y1) > 0.03:
                 return [
-                    f"绳子第 {number} 段是斜的（x 从 {x0:.2f} 到 {x1:.2f}），会和别的绳子交叉。"
-                    "每段绳子要竖直，让端点的 x 对准滑轮的 left_x 或 right_x。滑轮组请直接用 PulleyRig"
+                    (f"绳子第 {number} 段是斜的（x 从 {x0:.2f} 到 {x1:.2f}），会和别的绳子交叉。"
+                     "每段绳子要竖直，让端点的 x 对准滑轮的 left_x 或 right_x。滑轮组请直接用 PulleyRig")
                 ]
         return []
 
@@ -669,7 +682,7 @@ class Plot(Part):
                 f = timeline.frame(index)
                 points.append((index, self._axes.c2p(series.x(f), series.y(f))))
             knots = [points[0]]
-            for previous, current, following in zip(points, points[1:], points[2:]):
+            for previous, current, following in zip(points, points[1:], points[2:], strict=False):
                 a = current[1] - previous[1]
                 b = following[1] - current[1]
                 # 按夹角判断是否转弯。相邻两帧的线段很短，用叉积的绝对值会把平缓的曲线误判成直线
@@ -694,7 +707,7 @@ class Plot(Part):
         group.add(_text(self.x_label, 18, STEEL).next_to(
             self._axes.c2p(x1, y0), _point(0, -1), buff=0.36, aligned_edge=_point(1, 0)))
         group.add(_text(self.y_label, 18, STEEL).next_to(self._axes.c2p(x0, y1), _point(0, 1), buff=0.1))
-        for series, knots in zip(self.series, self._knots):
+        for series, knots in zip(self.series, self._knots, strict=True):
             ghost = VMobject(stroke_color=series.color, stroke_width=2, stroke_opacity=0.3)
             ghost.set_points_as_corners([point for _, point in knots])
             group.add(ghost)
@@ -702,7 +715,7 @@ class Plot(Part):
 
     def draw(self, f):
         group = VGroup()
-        for series, knots in zip(self.series, self._knots):
+        for series, knots in zip(self.series, self._knots, strict=True):
             current = self._axes.c2p(series.x(f), series.y(f))
             passed = [point for index, point in knots if index < f.index]
             if passed:
@@ -1067,7 +1080,7 @@ class _TiltedBlock(Part):
         return group
 
     def bounds(self, f):
-        xs, ys = zip(*self._corners(f))
+        xs, ys = zip(*self._corners(f), strict=True)
         return min(xs), min(ys), max(xs), max(ys)
 
     def edges(self, f):
@@ -1318,7 +1331,7 @@ class Incline:
 
 
 def _ticks(start, stop, step):
-    count = int(round((stop - start) / step))
+    count = round((stop - start) / step)
     return [start + step * i for i in range(count + 1)]
 
 

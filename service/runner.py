@@ -4,6 +4,7 @@
 结果来自运行过不可信代码的容器，所以同样按不可信处理：只接受固定文件名的普通文件。
 """
 
+import contextlib
 import json
 import os
 import shutil
@@ -63,7 +64,7 @@ def _environment():
 
 def _stop(process, name):
     if settings.RUNNER == "docker":
-        subprocess.run(["docker", "kill", name], capture_output=True)
+        subprocess.run(["docker", "kill", name], capture_output=True, check=False)
     process.kill()
 
 
@@ -97,10 +98,8 @@ def run(request, destination, timeout, on_progress=None):
                 log.append(line)
                 del log[:-40]
                 if on_progress and line.startswith("{"):
-                    try:
+                    with contextlib.suppress(ValueError):
                         on_progress(json.loads(line))
-                    except ValueError:
-                        pass
 
         def write_request():
             try:

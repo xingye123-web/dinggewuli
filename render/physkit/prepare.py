@@ -62,7 +62,7 @@ def prepare(scene_path, output_dir, speech_path=None):
             )
     except SceneError as error:
         result["errors"] = [str(error)]
-    except Exception:
+    except Exception:  # noqa: BLE001  模型写的代码可能抛出任何异常，都要整理成报告交回模型
         result["errors"] = [_scene_traceback(scene_path)]
     (output / "prepare.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
     return result

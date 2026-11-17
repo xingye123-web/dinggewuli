@@ -4,6 +4,7 @@
 用法：python -m service.laptop_worker
 """
 
+import contextlib
 import json
 import sys
 import threading
@@ -19,10 +20,8 @@ HEARTBEAT_SECONDS = 20
 def _keep_alive(job_id, stop):
     """处理任务期间定时报平安，服务器据此延长租约。"""
     while not stop.wait(HEARTBEAT_SECONDS):
-        try:
+        with contextlib.suppress(hub.HubError):  # 下一次再试，租约有余量
             hub.heartbeat(job_id)
-        except hub.HubError:
-            pass  # 下一次再试，租约有余量
 
 
 def _prepare_local(job):
@@ -52,12 +51,10 @@ def run_one(job):
             pipeline.run_problem(job_id)
     except hub.HubError as error:
         print(f"任务 {job_id} 中途和服务器断开：{error}。服务器会在租约到期后重新派发", flush=True)
-    except Exception:
+    except Exception:  # noqa: BLE001  任何意外都只让这道题失败，worker 继续领下一道
         traceback.print_exc()
-        try:
+        with contextlib.suppress(hub.HubError):
             store.update_status(job_id, status="failed", stage="worker", errors=["生成程序出错，请重新提交"])
-        except hub.HubError:
-            pass
     finally:
         stop.set()
 

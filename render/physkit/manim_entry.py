@@ -6,7 +6,6 @@
 import os
 
 from manim import Scene, ValueTracker, linear
-
 from physkit.loader import load_scene
 
 timeline, stage = load_scene(os.environ["PHYSKIT_SCENE"], os.environ.get("PHYSKIT_SPEECH"))
@@ -34,14 +33,14 @@ def _redraw(part, current):
 class Problem(Scene):
     def construct(self):
         self.camera.background_color = stage.background
-        first = int(os.environ.get("CLIP_FIRST_FRAME", 0))
-        end = int(os.environ.get("CLIP_END_FRAME", len(firsts)))
+        first = int(os.environ.get("CLIP_FIRST_FRAME", "0"))
+        end = int(os.environ.get("CLIP_END_FRAME", str(len(firsts))))
         # Manim 用浮点步长数帧，时长恰好是整数帧时可能多出一帧。少算半帧，帧数才准确
         run_time = (end - first - 0.5) / timeline.fps
         position = ValueTracker(first)
 
         def current():
-            return timeline.frame(firsts[min(int(round(position.get_value())), len(firsts) - 1)])
+            return timeline.frame(firsts[min(round(position.get_value()), len(firsts) - 1)])
 
         for part in stage.all_parts:
             backdrop = part.backdrop()

@@ -25,10 +25,10 @@ CASES = [
     ),
     (
         "工作目录不能执行程序",
-        "import os, subprocess\n"
-        "open('/work/run.sh', 'w').write('#!/bin/sh\\necho hi\\n')\n"
-        "os.chmod('/work/run.sh', 0o755)\n"
-        "subprocess.run(['/work/run.sh'], check=True)\nprint('REACHED')",
+        ("import os, subprocess\n"
+         "open('/work/run.sh', 'w').write('#!/bin/sh\\necho hi\\n')\n"
+         "os.chmod('/work/run.sh', 0o755)\n"
+         "subprocess.run(['/work/run.sh'], check=True)\nprint('REACHED')"),
     ),
     (
         "拿不到 Docker 控制权",
@@ -40,8 +40,8 @@ CASES = [
     ),
     (
         "没有任何特权",
-        "line = [l for l in open('/proc/self/status') if l.startswith('CapEff')][0]\n"
-        "assert int(line.split()[1], 16) == 0\nprint('SAFE')",
+        ("line = [l for l in open('/proc/self/status') if l.startswith('CapEff')][0]\n"
+         "assert int(line.split()[1], 16) == 0\nprint('SAFE')"),
     ),
     (
         "内存超限会被终止",
@@ -49,9 +49,9 @@ CASES = [
     ),
     (
         "不能无限创建进程",
-        "import subprocess\nchildren = []\n"
-        f"for i in range({int(settings.RENDER_PIDS) + 50}):\n"
-        "    children.append(subprocess.Popen(['sleep', '30']))\nprint('REACHED')",
+        ("import subprocess\nchildren = []\n"
+         f"for i in range({int(settings.RENDER_PIDS) + 50}):\n"
+         "    children.append(subprocess.Popen(['sleep', '30']))\nprint('REACHED')"),
     ),
 ]
 
@@ -64,9 +64,9 @@ def run_case(code):
     image = command.pop()
     command += ["--entrypoint", "python", image, "-c", code]
     try:
-        return subprocess.run(command, capture_output=True, text=True, timeout=TIMEOUT_SECONDS)
+        return subprocess.run(command, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, check=False)
     finally:
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
 
 
 def main():

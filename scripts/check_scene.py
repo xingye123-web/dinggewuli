@@ -19,8 +19,8 @@ docker_bin = r"C:\Program Files\Docker\Docker\resources\bin"
 if os.path.isdir(docker_bin) and docker_bin not in os.environ["PATH"]:
     os.environ["PATH"] += os.pathsep + docker_bin
 
-from render.scene_check import check_code  # noqa: E402
-from service import runner, settings  # noqa: E402
+from render.scene_check import check_code
+from service import runner, settings
 
 
 def main():

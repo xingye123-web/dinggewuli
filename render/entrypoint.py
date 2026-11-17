@@ -45,6 +45,7 @@ def run_prepare(scene, output, speech_path):
         command.append(str(speech_path))
     completed = subprocess.run(
         command,
+        check=False,
         cwd=output,
         env=child_env(),
         stdout=subprocess.DEVNULL,
@@ -72,7 +73,7 @@ def render_clips(scene, work, unique_count, clips, speech_path):
         if speech_path:
             env["PHYSKIT_SPEECH"] = str(speech_path)
         media = work / f"clip{k}"
-        log = open(work / f"clip{k}.log", "wb")
+        log = open(work / f"clip{k}.log", "wb")  # noqa: SIM115  交给子进程写，等它结束后再关
         command = [
             sys.executable, "-m", "manim", "render",
             "-r", f"{WIDTH},{HEIGHT}", "--fps", str(FPS), "--disable_caching",
@@ -175,9 +176,9 @@ def add_narration(silent_video, audio_items, starts, seconds, work, output, segm
     inputs = []
     filters = []
     labels = []
-    for index, (path, start) in enumerate(zip(paths, starts)):
+    for index, (path, start) in enumerate(zip(paths, starts, strict=True)):
         inputs += ["-i", str(path)]
-        delay = int(round(start * 1000))
+        delay = round(start * 1000)
         filters.append(f"[{index + 1}:a]aresample=44100,adelay={delay}:all=1[a{index}]")
         labels.append(f"[a{index}]")
     filters.append(f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0,apad[voice]")

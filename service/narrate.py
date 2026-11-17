@@ -5,8 +5,8 @@
 
 import base64
 import hashlib
-import io
 import http.client
+import io
 import json
 import re
 import time
@@ -179,7 +179,7 @@ def _synthesize_batch(lines, spoken):
     # 时间戳是按换成中文读法后的文字给的，对回原文：原文每个字取它对应的读法里最早的那个时刻
     said_times = _char_times(said, response.get("word_timestamps", []))
     times = [None] * len(joined)
-    for moment, index in zip(said_times, origin):
+    for moment, index in zip(said_times, origin, strict=True):
         if moment is not None and (times[index] is None or moment < times[index]):
             times[index] = moment
 
@@ -219,7 +219,7 @@ def synthesize_all(lines, on_progress=None):
     # 每句结尾补上句号，句子之间才会停顿，也不会把两句读成一句
     spoken = [line if line[-1:] in "。！？；，,.!?;" else line + "。" for line in lines]
     joined = "".join(spoken)
-    digest = hashlib.sha256(f"{settings.BREEZE_VOICE}|{settings.BREEZE_SPEED}|words1|{joined}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{settings.BREEZE_VOICE}|{settings.BREEZE_SPEED}|words1|{joined}".encode()).hexdigest()
     cache = settings.ARTIFACTS_DIR / "_speech" / f"{digest}.json"
     if cache.exists():
         result = json.loads(cache.read_text(encoding="utf-8"))

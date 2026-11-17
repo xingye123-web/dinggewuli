@@ -60,7 +60,7 @@ def jobs(since):
 def visitors(days):
     log = subprocess.run(
         ["journalctl", "-u", "dingge-api", "--since", f"-{days} days", "--no-pager", "-o", "short-iso"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, check=False,
     ).stdout
     worker_ips, first_seen, pages = set(), {}, collections.defaultdict(set)
     for line in log.splitlines():

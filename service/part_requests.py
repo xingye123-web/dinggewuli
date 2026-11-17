@@ -25,7 +25,7 @@ HANDLED = DIR / "已处理.json"  # Claude 做完零件后把关键词写进来�
 CANDIDATES = DIR / "candidates"
 CANDIDATES_PER_CATEGORY = 3
 
-_NOTE = re.compile(r"^\s*#\s*缺少零件\s*[:：]\s*(.+)$", re.M)
+_NOTE = re.compile(r"^\s*#\s*缺少零件\s*[:：]\s*(.+)$", re.MULTILINE)
 
 
 def parse(code):
@@ -35,7 +35,7 @@ def parse(code):
         fields = [field.strip() for field in re.split(r"[；;]", line, maxsplit=2)]
         fields += [""] * (3 - len(fields))
         # 模型有时会写「缺少零件: 无（……）」，这种不算需求
-        if fields[0] and not re.match(r"^(无|没有|不缺|none)", fields[0], re.I):
+        if fields[0] and not re.match(r"^(无|没有|不缺|none)", fields[0], re.IGNORECASE):
             found.append({"name": fields[0], "use": fields[1], "substitute": fields[2]})
     return found
 

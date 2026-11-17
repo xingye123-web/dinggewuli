@@ -4,8 +4,22 @@ import re
 
 from manim import MarkupText, Rectangle, RoundedRectangle, Text, VGroup
 
-from .parts import _BACKGROUND, CAPTION_TOP, FONT, INK, ROPE, STAGE_RIGHT, Block, Part, Plot, Rope, _Component, _markup, _point
 from .lesson import ProblemCard
+from .parts import (
+    _BACKGROUND,
+    CAPTION_TOP,
+    FONT,
+    INK,
+    ROPE,
+    STAGE_RIGHT,
+    Block,
+    Part,
+    Plot,
+    Rope,
+    _Component,
+    _markup,
+    _point,
+)
 from .timeline import ERASE_HOLD, ERASE_SECONDS, SceneError
 
 FRAME_WIDTH = 8 * 16 / 9
@@ -112,7 +126,7 @@ class _Board(Part):
         group, owners = self._build(shown)
         for index in writing:
             # 逐字写出：每个字在轮到它时淡入
-            glyphs = [g for text, owner in zip(group, owners) if owner == index for g in text.submobjects]
+            glyphs = [g for text, owner in zip(group, owners, strict=True) if owner == index for g in text.submobjects]
             reached = (t - lines[index]["t"]) / lines[index]["reveal"] * len(glyphs)
             for number, glyph in enumerate(glyphs):
                 glyph.set_opacity(min(max(reached - number, 0.0), 1.0))
@@ -287,8 +301,8 @@ class Stage:
         half_w, half_h = FRAME_WIDTH / 2 + _EDGE_MARGIN, FRAME_HEIGHT / 2 + _EDGE_MARGIN
         if x0 < -half_w or x1 > half_w or y0 < -half_h or y1 > half_h:
             return [
-                f"第 {index} 帧：{label} 超出画面，范围 x {x0:.2f} 到 {x1:.2f}，y {y0:.2f} 到 {y1:.2f}；"
-                f"画面范围 x ±{FRAME_WIDTH / 2:.2f}，y ±{FRAME_HEIGHT / 2:.2f}"
+                (f"第 {index} 帧：{label} 超出画面，范围 x {x0:.2f} 到 {x1:.2f}，y {y0:.2f} 到 {y1:.2f}；"
+                 f"画面范围 x ±{FRAME_WIDTH / 2:.2f}，y ±{FRAME_HEIGHT / 2:.2f}")
             ]
         return []
 

@@ -1,6 +1,7 @@
 # 示例：杠杆。先求平衡时的动力，再让杠杆转动，演示竖直方向的力的力臂随转动变短、比值不变
-from physkit import *
 import math
+
+from physkit import *
 
 G, OA, OB, H = 30, 0.2, 0.6, 0.1
 
