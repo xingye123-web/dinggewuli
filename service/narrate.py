@@ -1,4 +1,4 @@
-"""Breeze Blue 配音。整段旁白一次合成，再按逐字时间戳切回每一句。
+"""Breeze Blue 配音。整段旁白一次合成（太长时按句分几批），再按逐字时间戳切回每一句。
 
 实测一次合成整段比逐句合成快一倍多（11 句：20 秒对 44 秒）。只有这里持有配音密钥，渲染容器拿到的只是音频。
 """
@@ -151,10 +151,70 @@ def _first_known(times, start, end):
     return next((times[i] for i in range(start, end) if times[i] is not None), None)
 
 
+MAX_REQUEST_CHARS = 900  # 配音接口一次最多 1000 字（按换成中文读法后的字数算），留些余量
+
+
+def _batches(spoken):
+    """把句子按顺序分批，每批读法字数不超过 MAX_REQUEST_CHARS。整句不拆开。"""
+    batches, current, size = [], [], 0
+    for index, text in enumerate(spoken):
+        length = len(spoken_digits(text)[0])
+        if current and size + length > MAX_REQUEST_CHARS:
+            batches.append(current)
+            current, size = [], 0
+        current.append(index)
+        size += length
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _synthesize_batch(lines, spoken):
+    """一批句子合成一次，返回 (MP3 字节, 时长, 每句的条目)，条目里的时间从这一批的开头算起。"""
+    joined = "".join(spoken)
+    said, origin = spoken_digits(joined)
+    response = _request(said)
+    audio = base64.b64decode(response["audio_base64"])
+    length = MP3(io.BytesIO(audio)).info.length
+    # 时间戳是按换成中文读法后的文字给的，对回原文：原文每个字取它对应的读法里最早的那个时刻
+    said_times = _char_times(said, response.get("word_timestamps", []))
+    times = [None] * len(joined)
+    for moment, index in zip(said_times, origin):
+        if moment is not None and (times[index] is None or moment < times[index]):
+            times[index] = moment
+
+    offsets = []
+    cursor = 0
+    for text in spoken:
+        offsets.append(cursor)
+        cursor += len(text)
+    starts = []
+    for index, text in enumerate(spoken):
+        known = _first_known(times, offsets[index], offsets[index] + len(text))
+        moment = known if known is not None else length * offsets[index] / max(len(joined), 1)
+        starts.append(max(moment, starts[-1] if starts else 0.0))
+    starts[0] = 0.0
+
+    entries = []
+    for index, line in enumerate(lines):
+        begin = starts[index]
+        end = starts[index + 1] if index + 1 < len(lines) else length
+        clauses = []
+        latest = 0.0
+        for a, b in split_clauses(line):
+            known = _first_known(times, offsets[index] + a, offsets[index] + b)
+            moment = (known - begin) if known is not None else (end - begin) * a / max(len(line), 1)
+            latest = max(latest, moment)
+            clauses.append({"text": line[a:b], "start": round(latest, 3)})
+        entries.append({"text": line, "seconds": round(end - begin, 3), "clauses": clauses, "from": begin, "to": end})
+    return audio, length, entries
+
+
 def synthesize_all(lines, on_progress=None):
     """整段合成，返回 {"audio": MP3 的 base64, "lines": [{"text", "seconds", "clauses", "from", "to"}]}。
 
     from、to 是这一句在整段音频里的起止秒数，seconds 含句后的自然停顿。相同的旁白只合成一次。
+    旁白太长时按句分成几批合成（接口一次最多 1000 字），音频首尾相接，时间依次往后推。
     """
     # 每句结尾补上句号，句子之间才会停顿，也不会把两句读成一句
     spoken = [line if line[-1:] in "。！？；，,.!?;" else line + "。" for line in lines]
@@ -164,43 +224,19 @@ def synthesize_all(lines, on_progress=None):
     if cache.exists():
         result = json.loads(cache.read_text(encoding="utf-8"))
     else:
-        said, origin = spoken_digits(joined)
-        response = _request(said)
-        audio = base64.b64decode(response["audio_base64"])
-        length = MP3(io.BytesIO(audio)).info.length
-        # 时间戳是按换成中文读法后的文字给的，对回原文：原文每个字取它对应的读法里最早的那个时刻
-        said_times = _char_times(said, response.get("word_timestamps", []))
-        times = [None] * len(joined)
-        for moment, index in zip(said_times, origin):
-            if moment is not None and (times[index] is None or moment < times[index]):
-                times[index] = moment
-
-        offsets = []
-        cursor = 0
-        for text in spoken:
-            offsets.append(cursor)
-            cursor += len(text)
-        starts = []
-        for index, text in enumerate(spoken):
-            known = _first_known(times, offsets[index], offsets[index] + len(text))
-            moment = known if known is not None else length * offsets[index] / max(len(joined), 1)
-            starts.append(max(moment, starts[-1] if starts else 0.0))
-        starts[0] = 0.0
-
-        entries = []
-        for index, line in enumerate(lines):
-            begin = starts[index]
-            end = starts[index + 1] if index + 1 < len(lines) else length
-            clauses = []
-            latest = 0.0
-            for a, b in split_clauses(line):
-                known = _first_known(times, offsets[index] + a, offsets[index] + b)
-                moment = (known - begin) if known is not None else (end - begin) * a / max(len(line), 1)
-                latest = max(latest, moment)
-                clauses.append({"text": line[a:b], "start": round(latest, 3)})
-            entries.append({"text": line, "seconds": round(end - begin, 3), "clauses": clauses,
-                            "from": round(begin, 3), "to": round(end, 3)})
-        result = {"audio": response["audio_base64"], "lines": entries}
+        chunks, entries, elapsed, done = [], [], 0.0, 0
+        for batch in _batches(spoken):
+            audio, length, batch_entries = _synthesize_batch([lines[i] for i in batch], [spoken[i] for i in batch])
+            chunks.append(audio)
+            for entry in batch_entries:
+                entry["from"] = round(entry["from"] + elapsed, 3)
+                entry["to"] = round(entry["to"] + elapsed, 3)
+                entries.append(entry)
+            elapsed += length
+            done += len(batch)
+            if on_progress and done < len(lines):
+                on_progress(done, len(lines))
+        result = {"audio": base64.b64encode(b"".join(chunks)).decode("ascii"), "lines": entries}
         cache.parent.mkdir(parents=True, exist_ok=True)
         temporary = cache.with_suffix(".tmp")
         temporary.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
