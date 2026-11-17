@@ -15,6 +15,7 @@ const MAX_POLL_FAILURES = 5;
 
 const STAGE_NAMES: Record<string, string> = {
   queued: "排队中",
+  claimed: "开始处理",
   reading: "正在读题",
   awaiting_confirmation: "等你核对题目",
   solving: "正在解题",
@@ -22,6 +23,7 @@ const STAGE_NAMES: Record<string, string> = {
   checking: "正在检查代码和核对答案",
   narrating: "正在配音",
   rendering: "正在渲染视频",
+  encoding: "正在合成视频",
   done: "已完成",
   failed: "生成失败",
 };
